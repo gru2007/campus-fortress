@@ -997,7 +997,35 @@ ConVar tf_grapplinghook_enable( "tf_grapplinghook_enable", "0", FCVAR_REPLICATED
 
 #ifdef GAME_DLL
 CUtlString s_strNextMvMPopFile;
-CON_COMMAND_F( tf_mvm_popfile, "Change to a target popfile for MvM", FCVAR_GAMEDLL )
+
+static int PopfileCompletion( char const *partial, char commands[ COMMAND_COMPLETION_MAXITEMS ][ COMMAND_COMPLETION_ITEM_LENGTH ] )
+{
+	int matches = 0;
+
+	partial += ARRAYSIZE( "tf_mvm_popfile " ) - 1;
+	const int partialLen = V_strlen( partial );
+
+	if ( TFGameRules() && g_pPopulationManager )
+	{
+		CUtlVector< CUtlString > shortNames;
+		g_pPopulationManager->FindDefaultPopulationFileShortNames( shortNames );
+
+		shortNames.Sort( CUtlString::SortCaseInsensitive );
+
+		for ( int i = 0; i < shortNames.Count() && matches < COMMAND_COMPLETION_MAXITEMS; ++i )
+		{
+			const char *popfile = shortNames[ i ];
+			if ( partialLen == 0 || !V_strncasecmp( popfile, partial, partialLen ) )
+			{
+				V_snprintf( commands[ matches++ ], COMMAND_COMPLETION_ITEM_LENGTH, "tf_mvm_popfile %s", popfile );
+			}
+		}
+	}
+
+	return matches;
+}
+
+CON_COMMAND_F_COMPLETION( tf_mvm_popfile, "Change to a target popfile for MvM", FCVAR_GAMEDLL, PopfileCompletion )
 {
 	// Listenserver host or rcon access only!
 	if ( !UTIL_IsCommandIssuedByServerAdmin() )
@@ -1204,6 +1232,10 @@ ConVar tf_competitive_required_late_join_timeout( "tf_competitive_required_late_
                                                   "How long to wait for late joiners in matches requiring full player counts before canceling the match" );
 ConVar tf_competitive_required_late_join_confirm_timeout( "tf_competitive_required_late_join_confirm_timeout", "30", FCVAR_DEVELOPMENTONLY,
                                                           "How long to wait for the GC to confirm we're in the late join pool before canceling the match" );
+
+ConVar tf_ready_countdown_reduce_per_player( "tf_ready_countdown_reduce_per_player", "30", FCVAR_NONE, "How many seconds we should reduce the countdown timer by per player readying up" );
+ConVar tf_ready_countdown_minimum( "tf_ready_countdown_minimum", "60", FCVAR_NONE, "When players ready up never reduce the countdown timer below this number of seconds" );
+
 #endif // GAME_DLL
 
 ConVar tf_gamemode_community ( "tf_gamemode_community", "0", FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DEVELOPMENTONLY );
@@ -3523,14 +3555,17 @@ void CTFGameRules::PlayerReadyStatus_UpdatePlayerState( CTFPlayer *pTFPlayer, bo
 			// Reduce timer as each player hits Ready, but only once per-player
 			if ( !m_bPlayerReadyBefore[nEntIndex] && m_flRestartRoundTime > gpGlobals->curtime )
 			{
-				float flReduceBy = 0.0f;
-				float flReduceLimit = 15.0f;
-				if ( IsMannVsMachineMode() )
+				float flReduceBy = tf_ready_countdown_reduce_per_player.GetFloat();
+				float flReduceLimit = tf_ready_countdown_minimum.GetFloat();
+
+				const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( GetCurrentMatchGroup() );
+				if ( pMatchDesc )
 				{
-					flReduceLimit = 60.0f;
-					flReduceBy = 30.0f;
+					flReduceBy = pMatchDesc->GetReadyCountdownReducePerPlayer();
+					flReduceLimit = pMatchDesc->GetReadyCountdownMinimum();
 				}
-				else
+
+				if ( !IsMannVsMachineMode() )
 				{
 					int nBlueCount = 0;
 					int nRedCount = 0;
@@ -7148,7 +7183,15 @@ bool CTFGameRules::ApplyOnDamageModifyRules( CTakeDamageInfo &info, CBaseEntity 
 	CTFPlayer *pVictim = ToTFPlayer( pVictimBaseEntity );
 	CBaseEntity *pAttacker = info.GetAttacker();
 	CTFPlayer *pTFAttacker = ToTFPlayer( pAttacker );
-	CTFWeaponBase *pWeapon = dynamic_cast<CTFWeaponBase *>( info.GetWeapon() );
+	CTFWeaponBase* pWeapon = dynamic_cast<CTFWeaponBase*>( info.GetWeapon() );
+	// TODO(mcoms): reconcile this with damage info
+	CTFWeaponBase* pOriginalWeapon = pWeapon;
+	CBaseEntity* pInflictor = info.GetInflictor();
+	CBaseProjectile* pProjectile = pInflictor->IsBaseProjectile() ? dynamic_cast<CBaseProjectile*>( pInflictor ) : NULL;
+	if ( pProjectile )
+	{
+		pOriginalWeapon = dynamic_cast<CTFWeaponBase*>( pProjectile->GetOriginalLauncher() );
+	}
 
 	int iAttackIgnoresResists = 0;
 	CALL_ATTRIB_HOOK_INT_ON_OTHER( pWeapon, iAttackIgnoresResists, mod_pierce_resists_absorbs );
@@ -7379,8 +7422,8 @@ bool CTFGameRules::ApplyOnDamageModifyRules( CTakeDamageInfo &info, CBaseEntity 
 		if ( info.GetCritType() == CTakeDamageInfo::CRIT_NONE )
 		{
 			CBaseEntity *pInflictor = info.GetInflictor();
-			CTFGrenadePipebombProjectile *pBaseGrenade = dynamic_cast< CTFGrenadePipebombProjectile* >( pInflictor );
-			CTFBaseRocket *pBaseRocket = dynamic_cast< CTFBaseRocket* >( pInflictor );
+			CTFGrenadePipebombProjectile *pBaseGrenade = pProjectile ? dynamic_cast< CTFGrenadePipebombProjectile* >( pProjectile ) : NULL;
+			CTFBaseRocket *pBaseRocket = pProjectile && !pBaseGrenade ? dynamic_cast<CTFBaseRocket*>( pProjectile ) : NULL;
 
 			if ( pVictim && ( pVictim->m_Shared.InCond( TF_COND_URINE ) ||
 			                  pVictim->m_Shared.InCond( TF_COND_MARKEDFORDEATH ) ||
@@ -7417,7 +7460,7 @@ bool CTFGameRules::ApplyOnDamageModifyRules( CTakeDamageInfo &info, CBaseEntity 
 			}
 			else if ( ( pInflictor && pInflictor->IsPlayer() == false ) && ( ( pBaseRocket && pBaseRocket->GetDeflected() ) || ( pBaseGrenade && pBaseGrenade->GetDeflected() && ( pBaseGrenade->ShouldMiniCritOnReflect() ) ) ) )
 			{
-				if (tf_deflect_minicrits.GetBool())
+				if ( tf_deflect_minicrits.GetBool() )
 				{
 					// Reflected rockets, grenades (non-remote detonate), arrows always mini-crit
 					info.SetCritType(CTakeDamageInfo::CRIT_MINI);
@@ -9631,9 +9674,9 @@ void CTFGameRules::Think()
 			if ( bCanQuickReset )
 			{
 				bool bWillLeaveMap = false;
-				const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( TFGameRules()->GetCurrentMatchGroup() );
+				const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( TFGameRules()->GetCurrentMatchGroupWithEmulation() );
 				static ConVarRef tf_match_emulation_restartmatch( "tf_match_emulation_restartmatch" );
-				if ( pMatchDesc || TFGameRules()->IsEmulatingMatch() && !tf_match_emulation_restartmatch.GetBool() )
+				if ( pMatchDesc && !tf_match_emulation_restartmatch.GetBool() )
 				{
 					bWillLeaveMap = true;
 				}
@@ -9792,7 +9835,7 @@ void CTFGameRules::Think()
 			}
 		}
 
-		if (IsCompetitiveMode() || IsEmulatingMatch())
+		if ( IsCompetitiveMode() || IsEmulatingMatch() )
 		{
 			const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription(GetCurrentMatchGroup());
 			if (pMatch)
@@ -11474,21 +11517,16 @@ bool CTFGameRules::AllowSpectatorModeChange()
 	bool bAllowSpecModeChange = TFGameRules()->IsInTournamentMode() ? TFGameRules()->IsMannVsMachineMode() : true;
 
 	// new behavior for Valve casual, competitive, and mvm matches
-	const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription(TFGameRules()->GetCurrentMatchGroup());
-	if (pMatchDesc)
+	const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( TFGameRules()->GetCurrentMatchGroupWithEmulation() );
+	if ( pMatchDesc )
 	{
 		bAllowSpecModeChange = pMatchDesc->BAllowSpectatorModeChange();
-	}
-
-	if (TFGameRules()->IsEmulatingMatch() == 1)
-	{
-		bAllowSpecModeChange = true;
 	}
 
 	// TODO(mcoms)
 #if 0
 	// competitive games now allow spec mode changes due to visibility checks
-	if (TFGameRules()->IsCompetitiveGame())
+	if ( TFGameRules()->IsCompetitiveGame() )
 	{
 		bAllowSpecModeChange = true;
 	}
@@ -20287,12 +20325,7 @@ bool CTFGameRules::ShouldConfirmOnDisconnect()
 //-----------------------------------------------------------------------------
 bool CTFGameRules::ShouldShowPreRoundDoors() const
 {
-	if ( IsEmulatingMatch() )
-	{
-		return true;
-	}
-
-	const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( GetCurrentMatchGroup() );
+	const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( GetCurrentMatchGroupWithEmulation() );
 	if ( pMatchDesc )
 	{
 		return pMatchDesc->BUsesPreRoundDoors();
@@ -20464,7 +20497,7 @@ int CTFGameRules::GetTeamSize( int iTeam )
 bool CTFGameRules::ShouldBalanceTeams( void )
 {
 	// never autobalance the teams for managed matches using the old system
-	if ( GetMatchGroupDescription( GetCurrentMatchGroup() ) )
+	if ( GetMatchGroupDescription( GetCurrentMatchGroupWithEmulation() ) )
 		return false;
 
 	bool bDisableBalancing = false;
@@ -24291,13 +24324,8 @@ void CTFGameRules::MatchSummaryTeleport()
 {
 	bool bUseMatchSummaryStage = false;
 
-	const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( GetCurrentMatchGroup() );
+	const IMatchGroupDescription* pMatchDesc = GetMatchGroupDescription( GetCurrentMatchGroupWithEmulation() );
 	if ( pMatchDesc && pMatchDesc->BUseMatchSummaryStage() )
-	{
-		bUseMatchSummaryStage = true;
-	}
-
-	if ( IsEmulatingMatch() == 2 )
 	{
 		bUseMatchSummaryStage = true;
 	}
@@ -25121,7 +25149,7 @@ const char * CTFGameRules::GetNextMvMPopfile ( )
 void CTFGameRules::BalanceTeams( bool bRequireSwitcheesToBeDead )
 {
 	// are we playing a managed match via matchmaking?
-	if ( GetMatchGroupDescription( GetCurrentMatchGroup() ) )
+	if ( GetMatchGroupDescription( GetCurrentMatchGroupWithEmulation() ) )
 		return;
 		
 	if ( mp_autoteambalance.GetInt() == 2 )

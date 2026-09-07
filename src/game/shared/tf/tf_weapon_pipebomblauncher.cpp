@@ -32,8 +32,8 @@
 
 #define TF_WEAPON_PIPEBOMB_LAUNCHER_CHARGE_SOUND	"Weapon_StickyBombLauncher.ChargeUp"
 
-ConVar tf_scotres_inner_radius( "tf_scotres_inner_radius", "0.16", FCVAR_REPLICATED | FCVAR_NOTIFY, "Inner screen-space radius for Scottish Resistance reticle cluster targeting." );
-ConVar tf_scotres_outer_radius( "tf_scotres_outer_radius", "0.22", FCVAR_REPLICATED | FCVAR_NOTIFY, "Outer screen-space radius for Scottish Resistance reticle loose/individual targeting." );
+ConVar tf_scotres_inner_radius( "tf_scotres_inner_radius", "0.08", FCVAR_REPLICATED | FCVAR_NOTIFY, "Inner screen-space radius for Scottish Resistance reticle cluster targeting." );
+ConVar tf_scotres_outer_radius( "tf_scotres_outer_radius", "0.2", FCVAR_REPLICATED | FCVAR_NOTIFY, "Outer screen-space radius for Scottish Resistance reticle loose/individual targeting." );
 ConVar tf_scotres_chain_step( "tf_scotres_chain_step", "0.8", FCVAR_REPLICATED | FCVAR_NOTIFY, "Scottish Resistance cluster chaining maximum step distance factor (relative to bomb damage radius)." );
 ConVar tf_scotres_chain_budget( "tf_scotres_chain_budget", "2.5", FCVAR_REPLICATED | FCVAR_NOTIFY, "Scottish Resistance cluster chaining maximum total path distance factor (relative to anchor bomb damage radius)." );
 ConVar tf_scotres_aim_score( "tf_scotres_aim_score", "500000", FCVAR_REPLICATED | FCVAR_NOTIFY, "Aiming closeness score for selecting Scottish Resistance anchor bomb." );
@@ -690,7 +690,7 @@ bool CTFPipebombLauncher::ModifyPipebombsInView( int iEffect )
 			{
 				// Prioritize bombs we are looking directly at, but still factor in distance slightly.
 				// The score is lower the better.
-				float flScore = ( 1.0f - flDot ) * tf_scotres_aim_score.GetFloat() + flDistToBomb;
+				float flScore = ( 1.0f - flDot ) / ( 1.0f - flInnerThreshold ) * tf_scotres_aim_score.GetFloat() + flDistToBomb;
 				
 				if ( flScore < flBestDist )
 				{
@@ -820,7 +820,8 @@ bool CTFPipebombLauncher::ModifyPipebombsInView( int iEffect )
 		float flDot = DotProduct( vecToTarget, vecPlayerForward );
 
 		// 2. Detonate any bomb inside the outer screen radius but outside the inner screen radius
-		if ( bArmed && flDot > flOuterThreshold && flDot <= flInnerThreshold )
+		// (Disabled when an inner target is detected to avoid interfering with detection precision)
+		if ( !pAnchorBomb && bArmed && flDot > flOuterThreshold && flDot <= flInnerThreshold )
 		{
 			bShouldDetonate = true;
 		}
@@ -843,7 +844,7 @@ bool CTFPipebombLauncher::ModifyPipebombsInView( int iEffect )
 				{
 					m_bTargetingInner = true;
 				}
-				if ( flDot > flOuterThreshold )
+				else if ( !pAnchorBomb && flDot > flOuterThreshold )
 				{
 					m_bTargetingOuter = true;
 				}
@@ -857,7 +858,7 @@ bool CTFPipebombLauncher::ModifyPipebombsInView( int iEffect )
 				{
 					bDetonatedInner = true;
 				}
-				if ( flDot > flOuterThreshold )
+				else if ( !pAnchorBomb && flDot > flOuterThreshold )
 				{
 					bDetonatedOuter = true;
 				}

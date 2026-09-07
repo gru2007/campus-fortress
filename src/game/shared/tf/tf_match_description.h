@@ -115,7 +115,7 @@ public:
 	inline bool BAllowDrawingAtMatchHistory() const				{ return m_bAllowDrawingAtMatchSummary; }
 	inline bool BUseMatchSummaryStage() const					{ return m_bUseMatchSummaryStage; }
 	inline const char* GetMatchEndKickWarning() const			{ return m_pszMatchEndKickWarning; }
-	inline bool BAllowTeamChange() const						{ return m_bAllowTeamChange; }
+	bool BAllowTeamChange() const;
 	inline bool BAllowSpectatorModeChange() const				{ return m_bAllowSpecModeChange; }
 	inline bool BUsesRandomCrits() const						{ return m_bRandomWeaponCrits; }
 	inline bool BForceClientSettings() const					{ return m_bForceClientSettings; }
@@ -145,6 +145,9 @@ public:
 
 	inline bool BIsTrustedServersOnly() const { return m_bTrustedServersOnly; }
 
+	inline int GetReadyCountdownMinimum() const { return m_nReadyCountdownMinimum; }
+	inline int GetReadyCountdownReducePerPlayer() const { return m_nReadyCountdownReducePerPlayer; }
+
 	const ETFMatchGroup m_eMatchGroup;
 	const IProgressionDesc* m_pProgressionDesc;
 
@@ -170,6 +173,7 @@ protected:
 	bool                    m_bUseReducedBonusTime                = false;
 	bool                    m_bUseAutoBalance                     = false;
 	bool                    m_bAllowTeamChange                    = false;
+	bool                    m_bAllowTeamChangeDuringPreGame       = false;
 	bool                    m_bRandomWeaponCrits                  = true;
 	bool                    m_bFixedWeaponSpread                  = false;
 	// If we should not allow match to complete without a complete set of players.
@@ -209,6 +213,10 @@ protected:
 	// If set, update this leaderboard on match results.  Must provide BuildLeaderboardValue above.
 	EMatchGroupLeaderboard  m_eLeaderboard                        = k_eMatchGroupLeaderboard_Invalid;
 	bool                    m_bUsesStrictSpectatorRules           = false;
+
+	// Controls the pre-match countdown while waiting for players
+	int                     m_nReadyCountdownMinimum              = 60;
+	int                     m_nReadyCountdownReducePerPlayer      = 30;
 };
 
 #endif //TF_MATCH_DESCRIPTION_H
