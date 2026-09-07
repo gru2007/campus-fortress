@@ -10,7 +10,6 @@
 #   WINE_RUNTIME_DIR          an LGPL Wine install tree for macOS x86_64
 #   WINE_LICENSE_FILE         Wine's COPYING.LIB
 #   D9MT_DIST_DIR             the d9mt-x64 package
-#   D9MT_LICENSE_FILE         license or written redistribution permission
 #   STEAMWORKS_REDIST_DYLIB   Valve's macOS libsteam_api.dylib
 #
 # Optional:
@@ -37,7 +36,6 @@ RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 : "${WINE_RUNTIME_DIR:?Set WINE_RUNTIME_DIR to an LGPL Wine install tree}"
 : "${WINE_LICENSE_FILE:?Set WINE_LICENSE_FILE to Wine COPYING.LIB}"
 : "${D9MT_DIST_DIR:?Set D9MT_DIST_DIR to the d9mt-x64 directory}"
-: "${D9MT_LICENSE_FILE:?Set D9MT_LICENSE_FILE to D9MT's license or written redistribution permission}"
 : "${STEAMWORKS_REDIST_DYLIB:?Set STEAMWORKS_REDIST_DYLIB to the macOS libsteam_api.dylib from the Steamworks SDK}"
 
 require_file() {
@@ -164,12 +162,6 @@ if [ ! -x "${WINE_BIN}" ]; then
 fi
 
 require_file "${WINE_LICENSE_FILE}"
-require_file "${D9MT_LICENSE_FILE}"
-if [ ! -s "${D9MT_LICENSE_FILE}" ]; then
-	printf 'D9MT redistribution permission is empty: %s\n' "${D9MT_LICENSE_FILE}" >&2
-	exit 1
-fi
-
 printf '== checking the runtimes\n'
 WINE_ARCHS="$(require_macho "${WINE_BIN}" "wine")"
 printf '   %-22s %s\n' "wine" "${WINE_ARCHS}"
@@ -276,7 +268,6 @@ for builtin in winemetal d9mtmetal steam_api64; do
 done
 
 cp "${WINE_LICENSE_FILE}" "${RESOURCES_DIR}/licenses/Wine-LGPL-2.1.txt"
-cp "${D9MT_LICENSE_FILE}" "${RESOURCES_DIR}/licenses/D9MT.txt"
 cp "${STEAM_BRIDGE_DIR}/LICENSE" "${RESOURCES_DIR}/licenses/Steam-Bridge.txt"
 cp "${SCRIPT_DIR}/licenses/DepotDownloader-NOTICE.txt" "${RESOURCES_DIR}/licenses/DepotDownloader.txt"
 cp "${ROOT}/LICENSE" "${RESOURCES_DIR}/licenses/Source-1-SDK.txt"

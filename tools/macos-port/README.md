@@ -202,7 +202,6 @@ TC2_WINDOWS_DIR=/path/to/game_dist \
 WINE_RUNTIME_DIR=macos-runtimes/wine \
 WINE_LICENSE_FILE=macos-runtimes/wine/COPYING.LIB \
 D9MT_DIST_DIR=macos-runtimes/d9mt \
-D9MT_LICENSE_FILE=/path/to/D9MT-LICENSE-or-permission.txt \
 STEAMWORKS_REDIST_DYLIB=macos-runtimes/steam/libsteam_api.dylib \
   ./tools/macos-port/build-depot.sh
 ```

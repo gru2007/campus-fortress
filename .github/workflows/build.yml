@@ -543,9 +543,7 @@ jobs:
 
       - name: Fetch macOS runtimes
         if: steps.gate.outputs.ready == '1'
-        run: |
-          ./tools/macos-port/fetch-runtimes.sh runtime
-          curl --fail --location --retry 3 "${D9MT_LICENSE_URL}" -o runtime/D9MT-LICENSE.txt
+        run: ./tools/macos-port/fetch-runtimes.sh runtime
 
       - name: Build the macOS depot
         if: steps.gate.outputs.ready == '1'
@@ -557,7 +555,6 @@ jobs:
           WINE_RUNTIME_DIR="${GITHUB_WORKSPACE}/runtime/wine" \
           WINE_LICENSE_FILE="${GITHUB_WORKSPACE}/runtime/wine/COPYING.LIB" \
           D9MT_DIST_DIR="${GITHUB_WORKSPACE}/runtime/d9mt" \
-          D9MT_LICENSE_FILE="${GITHUB_WORKSPACE}/runtime/D9MT-LICENSE.txt" \
           STEAMWORKS_REDIST_DYLIB="${GITHUB_WORKSPACE}/runtime/steam/libsteam_api.dylib" \
             ./tools/macos-port/build-depot.sh
 
