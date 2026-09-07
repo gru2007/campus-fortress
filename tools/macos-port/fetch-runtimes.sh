@@ -231,5 +231,6 @@ printf '  TC2_WINDOWS_DIR=/path/to/game_dist \\\n'
 printf '  WINE_RUNTIME_DIR=%s/wine \\\n' "${DEST}"
 printf '  WINE_LICENSE_FILE=%s/wine/COPYING.LIB \\\n' "${DEST}"
 printf '  D9MT_DIST_DIR=%s/d9mt \\\n' "${DEST}"
+printf '  D9MT_LICENSE_FILE=/path/to/D9MT-LICENSE \\\n'
 printf '  STEAMWORKS_REDIST_DYLIB=%s \\\n' "${REDIST}"
 printf '    ./tools/macos-port/build-depot.sh\n'
