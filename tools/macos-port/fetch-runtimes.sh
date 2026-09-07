@@ -108,6 +108,20 @@ fi
 fetch "${MACOS_WINE_LICENSE_URL}" "${DEST}/wine/COPYING.LIB"
 test -s "${DEST}/wine/COPYING.LIB"
 
+# Some Gcenx bundles expose only bin/wine, while others also carry the wine64
+# compatibility name. file(1) exits successfully even for a missing path, so
+# using `file wine64 || file wine` reports a bogus "cannot open" instead of
+# taking the fallback. Select the executable before inspecting it, exactly as
+# build-depot.sh does.
+WINE_BIN="${DEST}/wine/bin/wine64"
+if [ ! -x "${WINE_BIN}" ]; then
+	WINE_BIN="${DEST}/wine/bin/wine"
+fi
+if [ ! -x "${WINE_BIN}" ]; then
+	printf 'Wine tree has neither an executable bin/wine64 nor bin/wine: %s\n' "${DEST}/wine" >&2
+	exit 1
+fi
+
 # -- D9MT ---------------------------------------------------------------------
 #
 # D9MT is five files in whatever arrangement the build that produced them
@@ -164,8 +178,7 @@ done
 
 # A unixlib is loaded into the Wine process, so its architecture is not a
 # preference. Reported here, and enforced by build-depot.sh.
-WINE_KIND="$(/usr/bin/file -b "${DEST}/wine/bin/wine64" 2>/dev/null \
-	|| /usr/bin/file -b "${DEST}/wine/bin/wine" 2>/dev/null || echo unknown)"
+WINE_KIND="$(/usr/bin/file -b "${WINE_BIN}")"
 for unixlib in "${DEST}/d9mt/x86_64-unix"/*.so; do
 	printf '   %-16s %s\n' "$(basename "${unixlib}")" "$(/usr/bin/file -b "${unixlib}")"
 done

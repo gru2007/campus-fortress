@@ -444,9 +444,9 @@ jobs:
 
   # The app bundle wraps the Windows client, so this waits on the Windows lane.
   # The Wine runtime, D9MT and Valve's macOS Steamworks library are binaries
-  # this repository does not carry. Steamworks and D9MT redistribution
-  # permission have no public defaults. Without them the job reports that and
-  # finishes green, because a macOS depot that cannot be built is not a reason
+  # this repository does not carry. Steamworks has no public default. Without
+  # it the job reports that and finishes green, because a macOS depot that
+  # cannot be built is not a reason
   # to hold up a Windows and Linux release.
   macos:
     name: Client / macOS
@@ -463,9 +463,6 @@ jobs:
       # Access Agreement. The secret may hold either the SDK zip or the bare
       # macOS libsteam_api.dylib.
       STEAMWORKS_REDIST_URL: ${{ secrets.STEAMWORKS_REDIST_URL }}
-      # The D9MT repository publishes its LGPL grant and third-party notices.
-      # Keep this configurable so releases can pin the exact published commit.
-      D9MT_LICENSE_URL: ${{ secrets.D9MT_LICENSE_URL }}
       # Only a release tag carries a version; a branch name is not one.
       RELEASE_VERSION: ${{ startsWith(github.ref, 'refs/tags/release/') && github.ref_name || '' }}
       BUILD_NUMBER: ${{ github.run_number }}
@@ -479,8 +476,11 @@ jobs:
         id: inputs
         run: |
           set -euo pipefail
-          if [ -z "${STEAMWORKS_REDIST_URL}" ] || [ -z "${D9MT_LICENSE_URL}" ]; then
-            echo "::warning::macOS depot skipped: Steamworks redistribution input or D9MT redistribution permission is not configured."
+          if [ -z "${STEAMWORKS_REDIST_URL}" ]; then
+            # libsteam_api.dylib is proprietary and has no legal public
+            # fallback. The lane is optional, so an intentional skip is a
+            # notice rather than a warning on every otherwise healthy build.
+            echo "::notice::macOS depot skipped: configure the STEAMWORKS_REDIST_URL repository secret to publish macOS."
             echo "ready=0" >> "$GITHUB_OUTPUT"
           else
             echo "ready=1" >> "$GITHUB_OUTPUT"
@@ -530,9 +530,7 @@ jobs:
 
       - name: Fetch macOS runtimes
         if: steps.gate.outputs.ready == '1'
-        run: |
-          ./tools/macos-port/fetch-runtimes.sh runtime
-          curl --fail --location --retry 3 "${D9MT_LICENSE_URL}" -o runtime/D9MT-LICENSE.txt
+        run: ./tools/macos-port/fetch-runtimes.sh runtime
 
       - name: Build the macOS depot
         if: steps.gate.outputs.ready == '1'
@@ -544,7 +542,6 @@ jobs:
           WINE_RUNTIME_DIR="${GITHUB_WORKSPACE}/runtime/wine" \
           WINE_LICENSE_FILE="${GITHUB_WORKSPACE}/runtime/wine/COPYING.LIB" \
           D9MT_DIST_DIR="${GITHUB_WORKSPACE}/runtime/d9mt" \
-          D9MT_LICENSE_FILE="${GITHUB_WORKSPACE}/runtime/D9MT-LICENSE.txt" \
           STEAMWORKS_REDIST_DYLIB="${GITHUB_WORKSPACE}/runtime/steam/libsteam_api.dylib" \
             ./tools/macos-port/build-depot.sh
 

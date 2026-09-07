@@ -202,7 +202,6 @@ TC2_WINDOWS_DIR=/path/to/game_dist \
 WINE_RUNTIME_DIR=macos-runtimes/wine \
 WINE_LICENSE_FILE=macos-runtimes/wine/COPYING.LIB \
 D9MT_DIST_DIR=macos-runtimes/d9mt \
-D9MT_LICENSE_FILE=/path/to/D9MT-LICENSE-or-permission.txt \
 STEAMWORKS_REDIST_DYLIB=macos-runtimes/steam/libsteam_api.dylib \
   ./tools/macos-port/build-depot.sh
 ```
@@ -275,10 +274,9 @@ Two jobs in `.github/workflows/build.yml`:
 - **`macos`** waits for the Windows client and assembles the app bundle. It
   runs `fetch-runtimes.sh`; Wine and D9MT are pinned by SHA-256. It requires
   **`secrets.STEAMWORKS_REDIST_URL`**, pointing at the SDK zip or bare
-  `libsteam_api.dylib`, and **`secrets.D9MT_LICENSE_URL`**, pointing at genuine
-  redistribution terms or written permission. Without either input the job
-  reports that and finishes green, because an unbuildable macOS depot should
-  not hold up Windows and Linux releases.
+  `libsteam_api.dylib`. Without the proprietary Steamworks input the job reports
+  an intentional skip and finishes green, because an unbuildable macOS depot
+  should not hold up Windows and Linux releases.
 
 The bundle travels between jobs as a tar, not as loose files: an artifact upload
 of loose files does not keep executable bits, and an `.app` that lost them does
@@ -388,9 +386,8 @@ bundle as required by the SDK license. Wine is LGPL and its terms are copied to
 corresponding Wine source/build materials and notices for the bundled Wine Mono,
 Wine Gecko, and runtime libraries; the license text alone does not complete
 those obligations. D9MT's original code is LGPL-2.1-or-later and its bundled
-third-party components retain their own terms. `D9MT_LICENSE_FILE` must point to
-the published D9MT license and notices; CI obtains that document from the
-configured `D9MT_LICENSE_URL`.
+third-party components retain their own terms; release packaging must address
+those obligations before this depot is shipped to players.
 
 `libsteam_api.dylib` and the native Steam client are proprietary Valve
 components, redistributable only under the Steamworks SDK Access Agreement. The
