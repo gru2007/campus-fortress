@@ -465,7 +465,7 @@ jobs:
       STEAMWORKS_REDIST_URL: ${{ secrets.STEAMWORKS_REDIST_URL }}
       # Public licensing material is not a credential. A repository variable
       # may pin another revision, but a fresh repository needs no fake secret.
-      D9MT_LICENSE_URL: ${{ vars.D9MT_LICENSE_URL || 'https://raw.githubusercontent.com/neo773/d9mt/master/LICENSE' }}
+      D9MT_LICENSE_URL: ${{ vars.D9MT_LICENSE_URL || 'https://raw.githubusercontent.com/neo773/d9mt/main/LICENSE' }}
       # Only a release tag carries a version; a branch name is not one.
       RELEASE_VERSION: ${{ startsWith(github.ref, 'refs/tags/release/') && github.ref_name || '' }}
       BUILD_NUMBER: ${{ github.run_number }}
