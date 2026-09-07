@@ -13,7 +13,7 @@ operational half.
 
 | | | |
 | --- | --- | --- |
-| `5147520` | Team Frontress Playtest | the game. Clients and dedicated servers both run **as** this |
+| `5147520` | Team Frontress Playtest | Playtest clients and the shipped dedicated server run **as** this |
 | `5147380` | Team Frontress | the main app. The same client build, published under it as well |
 | `5150320` | Team Frontress Dedicated Server | a Steam **Tool**. Only how the server payload is shipped and updated |
 
@@ -29,10 +29,16 @@ authenticates.
 
 ### Two apps, one build
 
-A release is compiled and packaged once, with the playtest AppID in it, and then
-published twice. The AppID lives in the content as well as in the SteamPipe
+A single `main` branch builds all three Steam apps; no separate main-app branch
+is needed. Pushing a `release/*` tag publishes Windows and Linux clients to
+Playtest, then the main app, plus the Linux dedicated payload to its Tool.
+`private/*` tags and manual workflow runs build artifacts without publishing.
+There are no macOS CI builds or depot uploads.
+
+The clients are compiled and packaged once, with the playtest AppID in them,
+and then published twice. The AppID lives in the content as well as in the SteamPipe
 build script -- `tc2/steam.inf`, `tc2/gameinfo.txt`, `tc2/gameinfo_server.txt` --
-so between the two uploads CI runs
+so between the two uploads CI runs this for **both** downloaded client directories:
 
 ```bash
 ./game_clean/retarget_appid.sh <content_dir> 5147380
@@ -40,11 +46,27 @@ so between the two uploads CI runs
 
 which rewrites those three files and refuses to continue if a stamp did not
 take. Which app, which depots and which beta branch the second upload goes to
-are the `STEAM_MAIN_APPID`, `STEAM_MAIN_DEPOT_WIN` / `_LINUX` / `_MAC` and
-`STEAM_MAIN_BRANCH` repository variables; the defaults are `5147380`, its three
-`+1/+2/+3` depots and the `prerelease` branch. Set `STEAM_MAIN_APPID` to `none`
-to publish the playtest alone, or `STEAM_MAIN_BRANCH` to `none` to upload
-without setting anything live.
+are the `STEAM_MAIN_APPID`, `STEAM_MAIN_DEPOT_WIN` / `_LINUX` and
+`STEAM_MAIN_BRANCH` repository variables; the defaults are `5147380`,
+`5147381` / `5147382` and the `prerelease` branch. Unset depot variables derive
+from the selected AppID (`+1/+2`), not from the Playtest depot overrides.
+Set `STEAM_MAIN_APPID` to `none` to skip only the main-client upload (the Tool
+still publishes), or `STEAM_MAIN_BRANCH` to `none` to upload without setting
+anything live.
+
+The first upload uses `STEAM_APPID` (default `5147520`), `STEAM_DEPOT_WIN` /
+`STEAM_DEPOT_LINUX` (default AppID `+1/+2`, normally `5147521` / `5147522`),
+and `STEAM_BRANCH` (default `prerelease`, `none` means upload only). CI stamps
+the clients before this upload too, so an AppID override also changes their
+content identity. These overrides do not retarget the dedicated payload or
+change the launcher's outside-Steam fallback.
+
+The Tool upload remains fixed in CI at app `5150320`, Linux depot `5150321`,
+branch `prerelease`; its runtime AppID remains `5147520`. The dedicated
+artifact and release tarball are packaged separately before client retargeting.
+Both client artifacts must be ready to publish either client app; the dedicated
+payload has its own readiness check. Uploads are sequential and not atomic:
+a failed upload stops later publication steps, without rolling back earlier ones.
 
 Nothing in the game code decides which app it is: `engine->GetAppID()` and
 `SteamUtils()->GetAppID()` answer with whatever the client was launched as, and
@@ -56,7 +78,6 @@ messages all go through them. What is written down anywhere is only these:
 | `tc2/steam.inf`, both `gameinfo*.txt` | the app the content belongs to | yes, per upload |
 | `steam_appid.txt` in the dedicated payload | the app the server runs as | derived from `steam.inf` by `copy_server.sh` |
 | `MOD_APPID` in `launcher_main_tc2.vpc` | which app a build run **outside** Steam attaches to | no -- one binary ships in both depots, and Steam's `SteamAppId` wins whenever it launched us |
-| The macOS bundle | -- | no -- editing it breaks its signature; its launcher stamps the staged copy from the AppID Steam launched it with |
 | `auth.app_id` / `auth.app_ids` in the coordinator | whose tickets matchmaking accepts | operator config, see below |
 | `steamworks/rich_presence_*.vdf` | friends-list tokens | uploaded per app on the partner site -- do both |
 

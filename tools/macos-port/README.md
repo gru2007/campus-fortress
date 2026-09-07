@@ -1,5 +1,10 @@
 # Team Frontress macOS depot
 
+This experimental port is on hold and is not built or published by CI.
+The shared packaging and SteamPipe scripts support Windows and Linux only.
+The sources and manual tooling below are retained for future work; they do not
+describe an actively distributed macOS release.
+
 This directory builds `Team Frontress.app` around the Windows x64 client, and it
 is the content of Steam depot **5147523** (the playtest) and of the main app's
 macOS depot. One bundle serves both: it is signed, so it is never stamped with

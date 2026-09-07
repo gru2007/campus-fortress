@@ -421,188 +421,9 @@ jobs:
           rm -f frontress-dedicated-linux.tar.gz frontress-dedicated-linux.tar.gz.sha256 ccache.tar
           git clean -xfd -- game src
 
-  # The bridge is generated from the Steamworks SDK description already in this
-  # repository and needs nothing but mingw-w64, so it is built on every run
-  # rather than only on a release. It also carries the two checks a bridge
-  # cannot be correct without: that both toolchains lay out every params struct
-  # identically, and that the DLL exports everything the game imports.
-  steam-bridge:
-    name: Steam bridge / macOS
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Install mingw-w64
-        run: brew install mingw-w64
-
-      - name: Build the bridge
-        run: ./tools/macos-port/steam-bridge/build.sh
-
-      - name: Check that both toolchains agree on every struct
-        run: ./tools/macos-port/steam-bridge/verify-layout.sh
-
-      - name: Upload the bridge
-        uses: actions/upload-artifact@v7
-        with:
-          name: steam-bridge-macos
-          path: tools/macos-port/steam-bridge/dist
-          if-no-files-found: error
-
-  # The app bundle wraps the Windows client, so this waits on the Windows lane.
-  # The Wine runtime, D9MT and Valve's macOS Steamworks library are binaries
-  # this repository does not carry. D9MT's redistribution terms are public;
-  # Steamworks has no public default. Without it the job reports that and
-  # finishes green, because a macOS depot that cannot be built is not a reason
-  # to hold up a Windows and Linux release.
-  macos:
-    name: Client / macOS
-    needs: [build, steam-bridge]
-    if: ${{ !cancelled() }}
-    runs-on: macos-15
-    timeout-minutes: 60
-    env:
-      # Wine may be overridden only together with its matching SHA-256. D9MT is
-      # pinned in fetch-runtimes.sh because release inputs become trusted code.
-      MACOS_WINE_URL: ${{ vars.MACOS_WINE_URL }}
-      MACOS_WINE_SHA256: ${{ vars.MACOS_WINE_SHA256 }}
-      # No default is possible: the Steamworks SDK is under the Steamworks SDK
-      # Access Agreement. The secret may hold either the SDK zip or the bare
-      # macOS libsteam_api.dylib.
-      STEAMWORKS_REDIST_URL: ${{ secrets.STEAMWORKS_REDIST_URL }}
-      # Public licensing material is not a credential. A repository variable
-      # may pin another revision, but a fresh repository needs no fake secret.
-      D9MT_LICENSE_URL: ${{ vars.D9MT_LICENSE_URL || 'https://raw.githubusercontent.com/neo773/d9mt/main/LICENSE' }}
-      # Only a release tag carries a version; a branch name is not one.
-      RELEASE_VERSION: ${{ startsWith(github.ref, 'refs/tags/release/') && github.ref_name || '' }}
-      BUILD_NUMBER: ${{ github.run_number }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Check the runtime inputs
-        id: inputs
-        run: |
-          set -euo pipefail
-          if [ -z "${STEAMWORKS_REDIST_URL}" ]; then
-            # libsteam_api.dylib is proprietary and has no legal public
-            # fallback. The lane is optional, so an intentional skip is a
-            # notice rather than a warning on every otherwise healthy build.
-            echo "::notice::macOS depot skipped: configure the STEAMWORKS_REDIST_URL repository secret to publish macOS."
-            echo "ready=0" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=1" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Tolerated, not required: the Windows lane can fail while this job is
-      # still allowed to start, and a missing client is reported below rather
-      # than as an artifact-download failure.
-      - name: Download the Windows client
-        if: steps.inputs.outputs.ready == '1'
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          name: steam-client-windows
-          path: publish-artifacts/steam-client-windows
-
-      # One gate for the rest of the job: the runtimes are configured and a
-      # Windows client actually arrived.
-      - name: Decide whether the depot can be built
-        id: gate
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.inputs.outputs.ready }}" != "1" ]; then
-            echo "ready=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ ! -f publish-artifacts/steam-client-windows/tc2_win64.exe ]; then
-            echo "::warning::macOS depot skipped: the Windows lane produced no client to wrap."
-            echo "ready=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "ready=1" >> "$GITHUB_OUTPUT"
-
-      - name: Download the bridge
-        if: steps.gate.outputs.ready == '1'
-        uses: actions/download-artifact@v7
-        with:
-          name: steam-bridge-macos
-          path: publish-artifacts/steam-bridge
-
-      # For tools/macos-port/wine-compat: the PE half of D9MT's Metal unixlib is
-      # rebuilt here against upstream Wine's ntdll, and that needs a cross
-      # compiler the runner does not ship.
-      - name: Install mingw-w64
-        if: steps.gate.outputs.ready == '1'
-        run: brew install mingw-w64
-
-      - name: Fetch macOS runtimes
-        if: steps.gate.outputs.ready == '1'
-        run: ./tools/macos-port/fetch-runtimes.sh runtime
-
-      - name: Build the macOS depot
-        if: steps.gate.outputs.ready == '1'
-        run: |
-          set -euo pipefail
-          # The bridge came out of its own job; do not rebuild it here.
-          STEAM_BRIDGE_DIR="${GITHUB_WORKSPACE}/publish-artifacts/steam-bridge" \
-          TC2_WINDOWS_DIR="${GITHUB_WORKSPACE}/publish-artifacts/steam-client-windows" \
-          WINE_RUNTIME_DIR="${GITHUB_WORKSPACE}/runtime/wine" \
-          WINE_LICENSE_FILE="${GITHUB_WORKSPACE}/runtime/wine/COPYING.LIB" \
-          D9MT_DIST_DIR="${GITHUB_WORKSPACE}/runtime/d9mt" \
-          STEAMWORKS_REDIST_DYLIB="${GITHUB_WORKSPACE}/runtime/steam/libsteam_api.dylib" \
-            ./tools/macos-port/build-depot.sh
-
-      # The checks that cannot be made on a Linux runner and are not worth
-      # finding out about from a player: the bundle is signed and sealed, its
-      # executable is runnable, and nothing in it is a symlink SteamPipe would
-      # deliver as something else.
-      - name: Verify the app bundle
-        if: steps.gate.outputs.ready == '1'
-        run: |
-          set -euo pipefail
-          APP="game_dist_macos/Team Frontress.app"
-          test -d "${APP}"
-          test -x "${APP}/Contents/MacOS/team-frontress"
-          codesign --verify --deep --strict "${APP}"
-          links="$(find "${APP}" -type l | head -n 5)"
-          if [ -n "${links}" ]; then
-            echo "::error::the bundle still contains symlinks, which SteamPipe does not deliver:"
-            echo "${links}"
-            exit 1
-          fi
-          echo "wine:  $(file -b "${APP}/Contents/Resources/wine/bin/wine64" 2>/dev/null || file -b "${APP}/Contents/Resources/wine/bin/wine")"
-          echo "d9mt:  $(file -b "${APP}/Contents/Resources/wine/lib/wine/x86_64-unix/d9mtmetal.so")"
-          echo "steam: $(file -b "${APP}/Contents/Resources/steam/libsteam_api.dylib")"
-          du -sh "${APP}"
-
-      # A tar, not the directory itself: executable bits are not kept by an
-      # artifact upload of loose files, and an .app that lost them does not
-      # launch.
-      - name: Pack the app bundle
-        if: steps.gate.outputs.ready == '1'
-        run: |
-          set -euo pipefail
-          tar -cf frontress-macos.tar -C game_dist_macos .
-          ls -la frontress-macos.tar
-
-      - name: Upload the macOS client
-        if: steps.gate.outputs.ready == '1'
-        uses: actions/upload-artifact@v7
-        with:
-          name: steam-client-macos
-          path: frontress-macos.tar
-          compression-level: 1
-          if-no-files-found: error
-
   publish-steam:
-    name: Steam / default
-    needs: [build, coordinator, macos]
+    name: Steam / Playtest + main + dedicated
+    needs: [build, coordinator]
     if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -610,11 +431,16 @@ jobs:
       group: team-frontress-steam-publish
       cancel-in-progress: false
     env:
-      STEAM_APPID: ${{ vars.STEAM_APPID }}
+      STEAM_APPID: ${{ vars.STEAM_APPID || '5147520' }}
       STEAM_DEPOT_WIN: ${{ vars.STEAM_DEPOT_WIN }}
       STEAM_DEPOT_LINUX: ${{ vars.STEAM_DEPOT_LINUX }}
-      STEAM_DEPOT_MAC: ${{ vars.STEAM_DEPOT_MAC || '5147523' }}
-      # The dedicated server ships under its own Tool, unchanged by any of that.
+      STEAM_BRANCH: ${{ vars.STEAM_BRANCH || 'prerelease' }}
+      STEAM_MAIN_APPID: ${{ vars.STEAM_MAIN_APPID || '5147380' }}
+      # Empty depot overrides use the target AppID + 1/+2 in steampipe.sh.
+      STEAM_MAIN_DEPOT_WIN: ${{ vars.STEAM_MAIN_DEPOT_WIN }}
+      STEAM_MAIN_DEPOT_LINUX: ${{ vars.STEAM_MAIN_DEPOT_LINUX }}
+      STEAM_MAIN_BRANCH: ${{ vars.STEAM_MAIN_BRANCH || 'prerelease' }}
+      # The dedicated server ships under its own Tool and keeps Playtest identity.
       STEAM_DS_APPID: 5150320
       STEAM_DS_DEPOT_LINUX: 5150321
       STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
@@ -633,7 +459,7 @@ jobs:
       - name: Download what gets published
         uses: actions/download-artifact@v7
         with:
-          pattern: "{steam-client-*,steam-dedicated-*,coordinator}"
+          pattern: "{steam-client-windows,steam-client-linux,steam-dedicated-*,coordinator}"
           path: publish-artifacts
 
       - name: Stage the coordinator next to the release
@@ -652,19 +478,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends 7zip
 
-      # Both apps are published from these same directories, so the checks, the
-      # unpacking and the executable bits happen once, here, and each publish
-      # step is then only a stamp and an upload.
+      # Both apps are published from these same directories, so readiness checks
+      # and executable permissions are handled once, here. Each publish step is
+      # then only a stamp and an upload.
       - name: Stage the client content
         run: |
           set -euo pipefail
           WIN_DIR="${GITHUB_WORKSPACE}/publish-artifacts/steam-client-windows"
           LINUX_DIR="${GITHUB_WORKSPACE}/publish-artifacts/steam-client-linux"
-          MAC_TAR="${GITHUB_WORKSPACE}/publish-artifacts/steam-client-macos/frontress-macos.tar"
-          MAC_DIR="${GITHUB_WORKSPACE}/publish-artifacts/macos"
 
           if [ ! -f "${WIN_DIR}/STEAM_READY" ] || [ ! -f "${LINUX_DIR}/STEAM_READY" ]; then
-            echo "::warning::Client Steam publish skipped: both Windows and Linux must finish successfully before default is changed."
+            echo "::warning::Client Steam publish skipped: both Windows and Linux must finish successfully before either app is published."
             echo "CLIENT_READY=0" >> "${GITHUB_ENV}"
             exit 0
           fi
@@ -672,45 +496,41 @@ jobs:
           rm -f "${WIN_DIR}/STEAM_READY" "${LINUX_DIR}/STEAM_READY"
           chmod +x "${LINUX_DIR}"/*.sh "${LINUX_DIR}/tc2_linux64" "${LINUX_DIR}/srcds_run_64" 2>/dev/null || true
 
-          # macOS is optional. It rides along when the lane produced a bundle
-          # and is left at its previous content when it did not, rather than
-          # holding up the two platforms that did build.
-          MAC_ARGS=""
-          if [ -f "${MAC_TAR}" ]; then
-            mkdir -p "${MAC_DIR}"
-            # -p to keep the executable bits the .app needs to launch.
-            tar -xpf "${MAC_TAR}" -C "${MAC_DIR}"
-            if [ -f "${MAC_DIR}/STEAM_READY" ]; then
-              rm -f "${MAC_DIR}/STEAM_READY"
-              MAC_ARGS="${MAC_DIR}"
-              echo "Publishing the macOS depot ${STEAM_DEPOT_MAC} from ${MAC_DIR}"
-            fi
-          fi
-          if [ -z "${MAC_ARGS}" ]; then
-            echo "::warning::No macOS bundle in this release; depot ${STEAM_DEPOT_MAC} is left unchanged."
-          fi
-
           {
             echo "CLIENT_READY=1"
             echo "WIN_DIR=${WIN_DIR}"
             echo "LINUX_DIR=${LINUX_DIR}"
-            echo "MAC_CONTENT_DIR=${MAC_ARGS}"
           } >> "${GITHUB_ENV}"
 
       - name: Publish client depots to the playtest app
         if: env.CLIENT_READY == '1'
-        env:
-          STEAM_BRANCH: prerelease
         run: |
           set -euo pipefail
-          # The content was packaged with the playtest AppID in it, so nothing
-          # is stamped here; the main app is the one that needs retargeting.
+          # Normally a no-op; keep content consistent with repository overrides.
+          ./game_clean/retarget_appid.sh "${WIN_DIR}" "${STEAM_APPID}"
+          ./game_clean/retarget_appid.sh "${LINUX_DIR}" "${STEAM_APPID}"
+          if [ "${STEAM_BRANCH}" = "none" ]; then STEAM_BRANCH=""; fi
           STEAM_WIN_DIR="${WIN_DIR}" \
           STEAM_LINUX_DIR="${LINUX_DIR}" \
-          STEAM_MAC_DIR="${MAC_CONTENT_DIR:-}" \
             ./game_clean/steampipe.sh
 
-      - name: Publish Linux dedicated server to default
+      - name: Publish client depots to the main app
+        if: env.CLIENT_READY == '1' && env.STEAM_MAIN_APPID != 'none'
+        run: |
+          set -euo pipefail
+          # Only mutate the downloaded clients, after the Playtest upload succeeds.
+          ./game_clean/retarget_appid.sh "${WIN_DIR}" "${STEAM_MAIN_APPID}"
+          ./game_clean/retarget_appid.sh "${LINUX_DIR}" "${STEAM_MAIN_APPID}"
+          if [ "${STEAM_MAIN_BRANCH}" = "none" ]; then STEAM_MAIN_BRANCH=""; fi
+          STEAM_APPID="${STEAM_MAIN_APPID}" \
+          STEAM_DEPOT_WIN="${STEAM_MAIN_DEPOT_WIN}" \
+          STEAM_DEPOT_LINUX="${STEAM_MAIN_DEPOT_LINUX}" \
+          STEAM_BRANCH="${STEAM_MAIN_BRANCH}" \
+          STEAM_WIN_DIR="${WIN_DIR}" \
+          STEAM_LINUX_DIR="${LINUX_DIR}" \
+            ./game_clean/steampipe.sh
+
+      - name: Publish Linux dedicated server to prerelease
         env:
           STEAM_DS_BRANCH: prerelease
         run: |

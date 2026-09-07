@@ -26,11 +26,6 @@
 #   run outside Steam, where it decides which of the two apps a hand-run build
 #   attaches to.
 #
-#   The macOS bundle is signed, so it cannot be edited after the fact without
-#   invalidating the seal. It does not need to be: its launcher stamps the copy
-#   it stages out of the bundle from the AppID Steam launched it with, so one
-#   bundle serves both apps.
-#
 # The script is idempotent -- stamping content that already carries the target
 # AppID is a no-op -- and it fails rather than silently doing nothing if a file
 # it expects is missing or a stamp did not take.
