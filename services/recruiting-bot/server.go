@@ -249,7 +249,6 @@ func (a *app) routes() http.Handler {
 			return
 		}
 		body.Text = strings.TrimSpace(body.Text)
-		// Below Telegram's limit, including non-BMP characters counted as UTF-16.
 		if body.Text == "" || !utf8.ValidString(body.Text) || utf8.RuneCountInString(body.Text) > 2000 {
 			fail(w, 400, "Объявление должно содержать от 1 до 2000 символов.")
 			return
@@ -303,12 +302,18 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request, _ int64) {
 		internal(w)
 		return
 	}
+	if err := a.db.ensureReferralSchema(r.Context()); err != nil {
+		internal(w)
+		return
+	}
 	type participant struct {
 		TelegramID int64  `json:"telegram_id"`
 		FirstName  string `json:"first_name"`
 		SteamID    string `json:"steam_id"`
 		HasKey     bool   `json:"has_key"`
 		KeyRevoked bool   `json:"key_revoked"`
+		ReferrerID int64  `json:"referrer_id"`
+		Referrals  int    `json:"referrals"`
 	}
 	stats := struct {
 		Participants  int `json:"participants"`
@@ -316,22 +321,27 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request, _ int64) {
 		AvailableKeys int `json:"available_keys"`
 		IssuedKeys    int `json:"issued_keys"`
 		RevokedKeys   int `json:"revoked_keys"`
+		Referrals     int `json:"referrals"`
 	}{}
 	err := a.db.QueryRowContext(r.Context(), `SELECT
  (SELECT COUNT(*) FROM users),
  (SELECT COUNT(*) FROM users WHERE steam_id IS NOT NULL),
  (SELECT COUNT(*) FROM keys WHERE telegram_id IS NULL),
  (SELECT COUNT(*) FROM keys k LEFT JOIN key_revocations kr ON kr.key_id=k.id WHERE k.telegram_id IS NOT NULL AND kr.key_id IS NULL),
- (SELECT COUNT(*) FROM key_revocations)`).Scan(&stats.Participants, &stats.Linked, &stats.AvailableKeys, &stats.IssuedKeys, &stats.RevokedKeys)
+ (SELECT COUNT(*) FROM key_revocations),
+ (SELECT COUNT(*) FROM referrals)`).Scan(&stats.Participants, &stats.Linked, &stats.AvailableKeys, &stats.IssuedKeys, &stats.RevokedKeys, &stats.Referrals)
 	if err != nil {
 		internal(w)
 		return
 	}
 	rows, err := a.db.QueryContext(r.Context(), `SELECT u.telegram_id,u.first_name,COALESCE(u.steam_id,''),
- (k.id IS NOT NULL AND kr.key_id IS NULL),kr.key_id IS NOT NULL
+ (k.id IS NOT NULL AND kr.key_id IS NULL),kr.key_id IS NOT NULL,
+ COALESCE(r.referrer_id,0),
+ (SELECT COUNT(*) FROM referrals rr WHERE rr.referrer_id=u.telegram_id)
 FROM users u
 LEFT JOIN keys k ON k.telegram_id=u.telegram_id
 LEFT JOIN key_revocations kr ON kr.key_id=k.id
+LEFT JOIN referrals r ON r.referee_id=u.telegram_id
 ORDER BY u.telegram_id`)
 	if err != nil {
 		internal(w)
@@ -340,7 +350,7 @@ ORDER BY u.telegram_id`)
 	people := []participant{}
 	for rows.Next() {
 		var p participant
-		if err := rows.Scan(&p.TelegramID, &p.FirstName, &p.SteamID, &p.HasKey, &p.KeyRevoked); err != nil {
+		if err := rows.Scan(&p.TelegramID, &p.FirstName, &p.SteamID, &p.HasKey, &p.KeyRevoked, &p.ReferrerID, &p.Referrals); err != nil {
 			rows.Close()
 			internal(w)
 			return
