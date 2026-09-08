@@ -108,6 +108,97 @@ func TestGroupCommandGrantsPublicJoinRequestAccess(t *testing.T) {
 	}
 }
 
+func TestGuardQueryOpensMiniAppAndCanApprove(t *testing.T) {
+	a := testApp(t)
+	ctx := context.Background()
+	webApps := 0
+	answers := 0
+	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sendChatJoinRequestWebApp"):
+			webApps++
+			if body["chat_join_request_query_id"] != "guard-query" || body["web_app_url"] != a.cfg.PublicURL+"/?join_request=1" {
+				t.Fatalf("bad guard Mini App request: %#v", body)
+			}
+			return telegramReply(200, `{"ok":true,"result":true}`), nil
+		case strings.HasSuffix(r.URL.Path, "/answerChatJoinRequestQuery"):
+			answers++
+			if body["chat_join_request_query_id"] != "guard-query" || body["result"] != "approve" {
+				t.Fatalf("bad guard answer: %#v", body)
+			}
+			return telegramReply(200, `{"ok":true,"result":true}`), nil
+		default:
+			t.Fatalf("unexpected Telegram method: %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	var join update
+	if err := json.Unmarshal([]byte(`{"chat_join_request":{"from":{"id":10,"first_name":"Tester"},"chat":{"id":-100123},"query_id":"guard-query"}}`), &join); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.handleUpdate(ctx, join); err != nil {
+		t.Fatal(err)
+	}
+	if webApps != 1 || answers != 0 {
+		t.Fatalf("unexpected initial guard calls: webapps=%d answers=%d", webApps, answers)
+	}
+	pending, err := a.db.joinRequestPending(ctx, 10)
+	if err != nil || !pending {
+		t.Fatalf("guard query not persisted: %v", err)
+	}
+
+	cookie := login(t, a, 10)
+	w := request(a, "POST", "/api/join-request/approve", `{"grant_group_access":true}`, a.cfg.PublicURL, cookie)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"approved":true`) {
+		t.Fatalf("Mini App approval failed: %d %s", w.Code, w.Body.String())
+	}
+	if answers != 1 {
+		t.Fatalf("join query not answered: %d", answers)
+	}
+	pending, err = a.db.joinRequestPending(ctx, 10)
+	if err != nil || pending {
+		t.Fatalf("resolved guard query remained pending: %v", err)
+	}
+	eligible, err := a.db.groupEligible(ctx, 10)
+	if err != nil || !eligible {
+		t.Fatalf("Mini App confirmation did not grant group access: %v", err)
+	}
+}
+
+func TestGuardQueryApprovesExistingAccessWithoutMiniApp(t *testing.T) {
+	a := testApp(t)
+	ctx := context.Background()
+	if err := a.db.register(ctx, 10, "Tester", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.grantGroupAccess(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	answers := 0
+	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasSuffix(r.URL.Path, "/answerChatJoinRequestQuery") {
+			t.Fatalf("eligible user opened Mini App: %s", r.URL.Path)
+		}
+		answers++
+		return telegramReply(200, `{"ok":true,"result":true}`), nil
+	})
+	var join update
+	if err := json.Unmarshal([]byte(`{"chat_join_request":{"from":{"id":10,"first_name":"Tester"},"chat":{"id":-100123},"query_id":"eligible-query"}}`), &join); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.handleUpdate(ctx, join); err != nil {
+		t.Fatal(err)
+	}
+	if answers != 1 {
+		t.Fatal("eligible guard query was not approved")
+	}
+}
+
 func TestPublicGroupMustRequireJoinRequests(t *testing.T) {
 	a := testApp(t)
 	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
@@ -115,5 +206,43 @@ func TestPublicGroupMustRequireJoinRequests(t *testing.T) {
 	})
 	if err := a.validateGroup(context.Background()); !errors.Is(err, errPublicGroupJoinRequestsDisabled) {
 		t.Fatalf("public group without join requests accepted: %v", err)
+	}
+}
+
+func TestGuardBotMustBeAssigned(t *testing.T) {
+	a := testApp(t)
+	calls := 0
+	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getChat"):
+			return telegramReply(200, `{"ok":true,"result":{"id":-100123,"type":"supergroup","username":"team_frontress_test","join_by_request":true}}`), nil
+		case strings.HasSuffix(r.URL.Path, "/getMe"):
+			return telegramReply(200, `{"ok":true,"result":{"id":777,"is_bot":true,"first_name":"Bot","supports_join_request_queries":true}}`), nil
+		default:
+			t.Fatalf("unexpected method: %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := a.validateGroup(context.Background()); !errors.Is(err, errGuardBotNotConfigured) {
+		t.Fatalf("missing guard bot accepted: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("unexpected validation calls: %d", calls)
+	}
+
+	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getChat"):
+			return telegramReply(200, `{"ok":true,"result":{"id":-100123,"type":"supergroup","username":"team_frontress_test","join_by_request":true,"guard_bot":{"id":777,"is_bot":true,"first_name":"Bot"}}}`), nil
+		case strings.HasSuffix(r.URL.Path, "/getMe"):
+			return telegramReply(200, `{"ok":true,"result":{"id":777,"is_bot":true,"first_name":"Bot","supports_join_request_queries":true}}`), nil
+		default:
+			t.Fatalf("unexpected method: %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := a.validateGroup(context.Background()); err != nil {
+		t.Fatalf("configured guard bot rejected: %v", err)
 	}
 }
