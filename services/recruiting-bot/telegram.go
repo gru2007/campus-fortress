@@ -218,9 +218,7 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 			return err
 		} else {
 			link, err := a.groupEntry(ctx)
-			if errors.Is(err, errPublicGroupJoinRequestsDisabled) {
-				text = "Публичная группа настроена без обязательных заявок. Организатору нужно включить одобрение новых участников в настройках группы."
-			} else if err != nil {
+			if err != nil {
 				if !permanentTelegramError(err) {
 					return err
 				}
@@ -282,22 +280,7 @@ func (a *app) validateGroup(ctx context.Context) error {
 }
 
 func (a *app) groupEntry(ctx context.Context) (string, error) {
-	group, err := a.testersGroup(ctx)
-	if err != nil {
-		return "", err
-	}
-	if group.Username == "" {
-		return a.groupInvite(ctx)
-	}
-	if !group.JoinByRequest {
-		return "", errPublicGroupJoinRequestsDisabled
-	}
-	for _, c := range group.Username {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			return "", errors.New("invalid public group username")
-		}
-	}
-	return "https://t.me/" + group.Username, nil
+	return a.groupInvite(ctx)
 }
 
 func (a *app) groupInvite(ctx context.Context) (string, error) {
