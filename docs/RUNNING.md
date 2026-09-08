@@ -329,7 +329,9 @@ game/tc2/loose/resource/ui/frontress_campaign.res
 game/tc2/loose/resource/ui/frontress_news.res
 ```
 
-Both ship loose, so they can be edited in an installed game. `x` and `y` on a
+Both ship loose, so they can be edited in an installed game. The campaign file
+feeds the native fallback and the HTML page's explicit `demo=0` integration mode;
+the default HTML presentation uses its own isolated demo fixture. `x` and `y` on a
 campaign node are 0..1 across the map area, so a layout drawn there survives any
 resolution. Delete the `fronts` block and the map draws quiet.
 
@@ -339,13 +341,10 @@ tf_mainmenu_info_reload
 
 re-reads both without restarting.
 
-The campaign file is a demo -- it is `services/coordinator/theater.example.json`
-laid out by hand and given a state. Its shape is the war layer's own shape
-(nodes, edges, the live fronts), which is the point: `wire.WarStatus.ActiveFronts`
-already carries exactly this, so pointing the map at the coordinator later is a
-change to where the data comes from, not to what the map knows. While `"demo"
-"1"` is in that file the map wears a DEMO badge, because the population on a
-made-up front is made up too.
+The campaign file is a demo based on `services/coordinator/theater.example.json`.
+Connecting a real campaign requires a feed adapter: `wire.WarStatus` does not yet
+provide the complete visual contract (node coordinates/ownership, links, capture
+fractions, and population). A DEMO badge identifies simulated campaign data.
 
 ### The campaign map
 
@@ -360,8 +359,14 @@ resource/html/campaign.html?view=card    the block in the information column
 resource/html/campaign.html?view=full    the theater, opened by clicking it
 ```
 
-The page holds no data. It reads one document, and asks the game for things by
-posting one line:
+The page defaults to an isolated 64-second presentation simulation. The card is a
+compact overview, not a scaled-down theater. The full view adds sector inspection,
+a briefing, and shared pause/resume. Demo actions never deploy or queue players.
+See [Campaign Presentation Demo](CAMPAIGN_DEMO.md) for playback, browser tests, and
+the in-game acceptance checklist.
+
+With `demo=0`, it reads one document and asks the game for things by posting one
+line:
 
 ```
 GET  /v1/campaign          the war, the coordinator's population, the queue
@@ -372,14 +377,15 @@ Both are routes on the game's own server (`src/game/shared/gamestate/gamestate.c
 and the document is built by `CTFCampaignModel::BuildDocument`
 (`src/game/client/tf/frontress/tf_campaign_map.cpp`) once a second while the map
 is on screen. The page has no network access of its own, and nothing in it needs
-a build step -- it is one file, edit it and reopen the menu.
+a frontend build step. Restart the client after editing the loose HTML: the
+existing web view is retained when the theater is closed and reopened.
 
 Territory is not a list of shapes. Every node pulls the ground around it towards
 its own side, and the line where the two pulls cancel out is the front, traced
 out of that field. So the map cannot disagree with the campaign: move a node and
 the line moves with it.
 
-What the theater adds over the card: the node you pick (with its garrison, its
+In feed mode, what the theater adds over the card: the node you pick (with its garrison, its
 stage plan and the map being played), the live battles, the servers and how the
 population is spread across regions, the queue you are standing in, and
 **Deploy here**, which is where the player says which way they want the war to

@@ -34,8 +34,8 @@ using namespace vgui;
 // The page, and the two ways it is asked to draw itself. It is one file so a
 // change to the map is one edit, and so the theater and the card can never
 // disagree about what the war looks like.
-#define CAMPAIGN_PAGE_CARD	"ui/campaign.html?view=card"
-#define CAMPAIGN_PAGE_FULL	"ui/campaign.html?view=full"
+#define CAMPAIGN_PAGE_CARD	"ui/campaign.html?view=card&embedded=1"
+#define CAMPAIGN_PAGE_FULL	"ui/campaign.html?view=full&embedded=1"
 
 ConVar tf_campaign_map_html( "tf_campaign_map_html", "1", FCVAR_ARCHIVE,
                              "Draw the main menu's campaign map as the web page in resource/html/campaign.html. "
@@ -663,6 +663,7 @@ void CTFCampaignMapDialog::ShowDialog()
 	if ( !m_pWeb )
 	{
 		m_pWeb = new CInteractiveWebPanel( this, "CampaignMapWeb", CAMPAIGN_PAGE_FULL, true, false );
+		m_pWeb->SetViewportScaling( true );
 		m_pWeb->SetZPos( 10 );
 	}
 
@@ -761,6 +762,7 @@ CTFCampaignWebCard::CTFCampaignWebCard( Panel *pParent, const char *pszName, CTF
 	m_bWebStarted = false;
 
 	m_pWeb = new CInteractiveWebPanel( this, "CampaignCardWeb", CAMPAIGN_PAGE_CARD, true, false );
+	m_pWeb->SetViewportScaling( true );
 	m_pWeb->SetMouseInputEnabled( false );
 	m_pWeb->SetKeyBoardInputEnabled( false );
 
