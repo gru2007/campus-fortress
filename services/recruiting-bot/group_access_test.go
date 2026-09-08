@@ -47,8 +47,15 @@ func TestGroupCommandGrantsPublicJoinRequestAccess(t *testing.T) {
 	declined := false
 	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/getChat"):
-			return telegramReply(200, `{"ok":true,"result":{"id":-100123,"type":"supergroup","username":"team_frontress_test","join_by_request":true}}`), nil
+		case strings.HasSuffix(r.URL.Path, "/createChatInviteLink"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["creates_join_request"] != true {
+				t.Fatal("/group did not create a join-request link")
+			}
+			return telegramReply(200, `{"ok":true,"result":{"invite_link":"https://t.me/+group-request"}}`), nil
 		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
 			var body struct {
 				Text string `json:"text"`
@@ -56,8 +63,8 @@ func TestGroupCommandGrantsPublicJoinRequestAccess(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(body.Text, "https://t.me/team_frontress_test") {
-				t.Fatalf("public group URL missing: %q", body.Text)
+			if !strings.Contains(body.Text, "https://t.me/+group-request") {
+				t.Fatalf("join-request URL missing: %q", body.Text)
 			}
 			return telegramReply(200, `{"ok":true,"result":{}}`), nil
 		case strings.HasSuffix(r.URL.Path, "/approveChatJoinRequest"):
