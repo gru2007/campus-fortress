@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS keys (
 CREATE TABLE IF NOT EXISTS group_access (
  telegram_id INTEGER PRIMARY KEY REFERENCES users(telegram_id), granted_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS join_queries (
+ telegram_id INTEGER PRIMARY KEY REFERENCES users(telegram_id),
+ query_id TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS join_queries_expiry ON join_queries(expires_at);
 CREATE TABLE IF NOT EXISTS sessions (
  hash TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL REFERENCES users(telegram_id), expires_at INTEGER NOT NULL
 );
