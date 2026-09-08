@@ -75,6 +75,9 @@ func run() error {
 	a := &app{cfg: cfg, db: db, client: client, telegramBase: "https://api.telegram.org"}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := a.db.ensureAccessSchema(ctx); err != nil {
+		return errors.New("cannot initialize key access controls")
+	}
 	// A configured webhook prevents getUpdates. Preserve all pending updates.
 	startup, cancel := context.WithTimeout(ctx, 15*time.Second)
 	err = a.telegram(startup, "deleteWebhook", map[string]any{"drop_pending_updates": false}, nil)
@@ -96,10 +99,25 @@ func run() error {
 		case err != nil:
 			return errors.New("cannot validate testers group")
 		}
+		startup, cancel = context.WithTimeout(ctx, 15*time.Second)
+		err = a.validateRemovalRights(startup)
+		cancel()
+		if errors.Is(err, errCannotRemoveMembers) {
+			return errors.New("recruiting bot must have permission to restrict/remove testers group members")
+		}
+		if err != nil {
+			return errors.New("cannot validate testers group removal permissions")
+		}
+	}
+	startup, cancel = context.WithTimeout(ctx, 30*time.Second)
+	err = a.reconcileGroupAccessOnce(startup)
+	cancel()
+	if err != nil {
+		return errors.New("cannot reconcile testers group access")
 	}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: a.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10, BaseContext: func(_ net.Listener) context.Context { return ctx }}
 	var wg sync.WaitGroup
-	for _, worker := range []func(context.Context){a.poll, a.deliver, a.cleanup} {
+	for _, worker := range []func(context.Context){a.poll, a.deliver, a.cleanup, a.enforceGroupAccess} {
 		wg.Add(1)
 		go func(f func(context.Context)) { defer wg.Done(); f(ctx) }(worker)
 	}
