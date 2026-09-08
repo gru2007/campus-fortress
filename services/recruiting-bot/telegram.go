@@ -1,0 +1,341 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"io"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type telegramError struct {
+	Code       int
+	RetryAfter int
+}
+
+func (e *telegramError) Error() string {
+	return "Telegram request failed (" + strconv.Itoa(e.Code) + ")"
+}
+
+func permanentTelegramError(err error) bool {
+	var te *telegramError
+	return errors.As(err, &te) && te.Code >= 400 && te.Code < 500 && te.Code != 429
+}
+
+func (a *app) telegram(ctx context.Context, method string, body any, result any) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", a.telegramBase+"/bot"+a.cfg.BotToken+"/"+method, bytes.NewReader(b))
+	if err != nil {
+		return errors.New("cannot construct Telegram request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := a.client.Do(req)
+	if err != nil {
+		return errors.New("Telegram transport failed")
+	}
+	defer res.Body.Close()
+	var envelope struct {
+		OK         bool            `json:"ok"`
+		Result     json.RawMessage `json:"result"`
+		ErrorCode  int             `json:"error_code"`
+		Parameters struct {
+			RetryAfter int `json:"retry_after"`
+		} `json:"parameters"`
+	}
+	b, err = io.ReadAll(io.LimitReader(res.Body, (2<<20)+1))
+	if err != nil || len(b) > 2<<20 {
+		return errors.New("Telegram response too large or unreadable")
+	}
+	if err = json.Unmarshal(b, &envelope); err != nil {
+		return safeError(res.StatusCode)
+	}
+	if !envelope.OK || res.StatusCode != 200 {
+		code := envelope.ErrorCode
+		if code == 0 {
+			code = res.StatusCode
+		}
+		return &telegramError{Code: code, RetryAfter: envelope.Parameters.RetryAfter}
+	}
+	if result != nil {
+		return json.Unmarshal(envelope.Result, result)
+	}
+	return nil
+}
+
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+func retryDelay(err error, attempt int) time.Duration {
+	var te *telegramError
+	if errors.As(err, &te) && te.Code == 429 && te.RetryAfter > 0 {
+		seconds := int64(te.RetryAfter)
+		if seconds > 86400 {
+			seconds = 86400
+		}
+		return time.Duration(seconds+1) * time.Second
+	}
+	if attempt > 10 {
+		attempt = 10
+	}
+	if attempt < 0 {
+		attempt = 0
+	}
+	return time.Duration(1<<attempt) * time.Second
+}
+
+type update struct {
+	ID      int64 `json:"update_id"`
+	Message *struct {
+		From telegramUser `json:"from"`
+		Chat struct {
+			ID   int64  `json:"id"`
+			Type string `json:"type"`
+		} `json:"chat"`
+		Text string `json:"text"`
+	} `json:"message"`
+	Join *struct {
+		From telegramUser `json:"from"`
+		Chat struct {
+			ID int64 `json:"id"`
+		} `json:"chat"`
+	} `json:"chat_join_request"`
+}
+
+func (a *app) poll(ctx context.Context) {
+	attempt := 0
+	for ctx.Err() == nil {
+		var offset int64
+		if err := a.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE name='offset'`).Scan(&offset); err != nil {
+			if !sleep(ctx, time.Second) {
+				return
+			}
+			continue
+		}
+		var updates []update
+		err := a.telegram(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": 25, "limit": 50, "allowed_updates": []string{"message", "chat_join_request"}}, &updates)
+		if err != nil {
+			attempt++
+			if ctx.Err() == nil {
+				log.Print("Telegram polling failed; retrying")
+			}
+			if !sleep(ctx, retryDelay(err, attempt)) {
+				return
+			}
+			continue
+		}
+		attempt = 0
+		for _, u := range updates {
+			if u.ID < offset {
+				continue
+			}
+			if err := a.handleUpdate(ctx, u); err != nil && !permanentTelegramError(err) {
+				log.Print("Telegram update failed; retrying")
+				if !sleep(ctx, retryDelay(err, 1)) {
+					return
+				}
+				break
+			}
+			if _, err := a.db.ExecContext(ctx, `UPDATE settings SET value=? WHERE name='offset'`, u.ID+1); err != nil {
+				break
+			}
+			offset = u.ID + 1
+		}
+	}
+}
+
+func (a *app) handleUpdate(ctx context.Context, u update) error {
+	if u.Join != nil {
+		j := u.Join
+		if a.cfg.TestersChatID == 0 || j.Chat.ID != a.cfg.TestersChatID {
+			return nil
+		}
+		member, err := a.db.user(ctx, j.From.ID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		method := "declineChatJoinRequest"
+		if err == nil && member.SteamID != "" && member.Key != "" && !j.From.IsBot {
+			method = "approveChatJoinRequest"
+		}
+		err = a.telegram(ctx, method, map[string]any{"chat_id": j.Chat.ID, "user_id": j.From.ID}, nil)
+		var te *telegramError
+		// Replayed updates may refer to an already processed request.
+		if errors.As(err, &te) && te.Code == 400 {
+			return nil
+		}
+		return err
+	}
+	if u.Message == nil || u.Message.Chat.Type != "private" || u.Message.From.ID <= 0 || u.Message.From.IsBot || u.Message.Chat.ID != u.Message.From.ID {
+		return nil
+	}
+	m := u.Message
+	if err := a.db.register(ctx, m.From.ID, m.From.FirstName, true); err != nil {
+		return err
+	}
+	words := strings.Fields(m.Text)
+	if len(words) == 0 {
+		return nil
+	}
+	command := strings.Split(words[0], "@")[0]
+	text := ""
+	var markup any
+	switch command {
+	case "/start", "/help":
+		text = "Team Frontress набирает тестеров! Откройте приложение, привяжите Steam и получите ключ. Если ключи закончились, вы останетесь в списке ожидания: проверьте /key позже.\n\n/start — начать\n/help — помощь\n/key — мой ключ\n/group — запрос на вступление в группу тестеров\n\nПривязка Steam постоянная. Мы не запрашиваем пароль Steam."
+		markup = map[string]any{"inline_keyboard": [][]any{{map[string]any{"text": "Открыть Team Frontress", "web_app": map[string]string{"url": a.cfg.PublicURL + "/"}}}}}
+	case "/key":
+		key, err := a.db.claim(ctx, m.From.ID)
+		if errors.Is(err, errNotLinked) {
+			text = "Сначала откройте приложение через /start и привяжите Steam."
+		} else if err != nil {
+			return err
+		} else if key == "" {
+			text = "Свободные ключи закончились. Вы в списке ожидания; проверьте /key позже."
+		} else {
+			text = "Ваш ключ Team Frontress:\n" + key + "\n\nНе передавайте ключ другим."
+		}
+	case "/group":
+		member, err := a.db.user(ctx, m.From.ID)
+		if err != nil {
+			return err
+		}
+		if a.cfg.TestersChatID == 0 {
+			text = "Группа тестеров пока не настроена."
+		} else if member.SteamID == "" || member.Key == "" {
+			text = "Для доступа к группе привяжите Steam и получите ключ в приложении /start."
+		} else {
+			link, err := a.groupInvite(ctx)
+			if err != nil {
+				if !permanentTelegramError(err) {
+					return err
+				}
+				text = "Не удалось создать приглашение в группу. Обратитесь к организаторам или попробуйте позже."
+			} else {
+				text = "Подайте заявку на вступление в группу тестеров. Бот проверит вашу регистрацию:\n" + link
+			}
+		}
+	default:
+		text = "Используйте /start, /help, /key или /group."
+	}
+	body := map[string]any{"chat_id": m.Chat.ID, "text": text}
+	if markup != nil {
+		body["reply_markup"] = markup
+	}
+	err := a.telegram(ctx, "sendMessage", body, nil)
+	var te *telegramError
+	if errors.As(err, &te) && te.Code == 403 {
+		_, err = a.db.ExecContext(ctx, `UPDATE users SET blocked=1 WHERE telegram_id=?`, m.From.ID)
+	}
+	return err
+}
+
+func (a *app) groupInvite(ctx context.Context) (string, error) {
+	var result struct {
+		InviteLink string `json:"invite_link"`
+	}
+	err := a.telegram(ctx, "createChatInviteLink", map[string]any{"chat_id": a.cfg.TestersChatID, "creates_join_request": true, "expire_date": time.Now().Add(time.Hour).Unix(), "name": "Team Frontress testers"}, &result)
+	if err == nil && !strings.HasPrefix(result.InviteLink, "https://t.me/") {
+		err = errors.New("invalid invitation")
+	}
+	return result.InviteLink, err
+}
+
+func (a *app) deliver(ctx context.Context) {
+	for ctx.Err() == nil {
+		if err := a.deliverOne(ctx); errors.Is(err, sql.ErrNoRows) {
+			if !sleep(ctx, time.Second) {
+				return
+			}
+		} else if err != nil {
+			if ctx.Err() == nil {
+				log.Print("announcement delivery failed; will retry")
+			}
+			if !sleep(ctx, time.Second) {
+				return
+			}
+		} else if !sleep(ctx, 100*time.Millisecond) {
+			return
+		}
+	}
+}
+
+func (a *app) deliverOne(ctx context.Context) error {
+	// Lease before network I/O; a crashed process makes the delivery retryable.
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var cooldown int64
+	if err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE name='delivery_cooldown'`).Scan(&cooldown); err != nil {
+		return err
+	}
+	if cooldown > time.Now().Unix() {
+		return sql.ErrNoRows
+	}
+	var id, userID int64
+	var attempts int
+	var text string
+	err = tx.QueryRowContext(ctx, `SELECT d.announcement_id,d.telegram_id,d.attempts,a.text FROM deliveries d JOIN announcements a ON a.id=d.announcement_id JOIN users u ON u.telegram_id=d.telegram_id WHERE d.done=0 AND d.next_at<=? AND u.blocked=0 ORDER BY d.next_at,d.announcement_id,d.telegram_id LIMIT 1`, time.Now().Unix()).Scan(&id, &userID, &attempts, &text)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE deliveries SET attempts=attempts+1,next_at=? WHERE announcement_id=? AND telegram_id=?`, time.Now().Add(2*time.Minute).Unix(), id, userID)
+	if err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	err = a.telegram(ctx, "sendMessage", map[string]any{"chat_id": userID, "text": text}, nil)
+	done := err == nil
+	var te *telegramError
+	blocked := errors.As(err, &te) && te.Code == 403
+	if blocked || (te != nil && te.Code == 400) {
+		done = true
+	}
+	next := time.Now().Add(retryDelay(err, attempts+1)).Unix()
+	tx, dbErr := a.db.BeginTx(ctx, nil)
+	if dbErr != nil {
+		return dbErr
+	}
+	defer tx.Rollback()
+	if blocked {
+		if _, dbErr = tx.ExecContext(ctx, `UPDATE users SET blocked=1 WHERE telegram_id=?`, userID); dbErr != nil {
+			return dbErr
+		}
+		if _, dbErr = tx.ExecContext(ctx, `UPDATE deliveries SET done=1 WHERE telegram_id=?`, userID); dbErr != nil {
+			return dbErr
+		}
+	}
+	if _, dbErr = tx.ExecContext(ctx, `UPDATE deliveries SET done=?,next_at=? WHERE announcement_id=? AND telegram_id=?`, done, next, id, userID); dbErr != nil {
+		return dbErr
+	}
+	// Telegram's flood limit can be global, so pause the whole queue on 429.
+	if te != nil && te.Code == 429 {
+		if _, dbErr = tx.ExecContext(ctx, `UPDATE settings SET value=MAX(value,?) WHERE name='delivery_cooldown'`, next); dbErr != nil {
+			return dbErr
+		}
+		if _, dbErr = tx.ExecContext(ctx, `UPDATE deliveries SET next_at=MAX(next_at,?) WHERE done=0`, next); dbErr != nil {
+			return dbErr
+		}
+	}
+	return tx.Commit()
+}
