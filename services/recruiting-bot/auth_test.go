@@ -49,6 +49,14 @@ func TestInitData(t *testing.T) {
 	if err != nil || u.ID != 123 {
 		t.Fatalf("valid authentication: %v", err)
 	}
+	guard := signInit("test-token", url.Values{
+		"auth_date":                    {strconv.FormatInt(now.Unix(), 10)},
+		"user":                         {`{"id":123,"first_name":"Tester"}`},
+		"chat_join_request_query_id":   {"guard-query"},
+	})
+	if u, err := verifyInitData(guard, "test-token", now); err != nil || u.ID != 123 {
+		t.Fatalf("valid guard Mini App authentication: %v", err)
+	}
 	for name, raw := range map[string]string{
 		"tampered":     strings.Replace(good, "Tester", "Admin", 1),
 		"stale":        initData(123, now.Add(-61*time.Minute)),
@@ -138,7 +146,7 @@ func TestSteamVerification(t *testing.T) {
 	}
 	for _, body := range []string{"ns:" + openIDNamespace + "\nis_valid:false\n", "is_valid:true\n", "ns:" + openIDNamespace + "\nis_valid:true\nis_valid:false\n"} {
 		a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 		})
 		if _, _, err := a.verifySteam(context.Background(), steamAssertion(a, state, now), state, now); err == nil {
 			t.Fatal("accepted negative or malformed server verification")
@@ -211,7 +219,7 @@ func TestSteamBrowserHandoff(t *testing.T) {
 		t.Fatal("browser confirmation did not redirect to Steam")
 	}
 	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ns:" + openIDNamespace + "\nis_valid:true\n"))}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ns:" + openIDNamespace + "\nis_valid:true\n")), Header: make(http.Header)}, nil
 	})
 	callback := a.cfg.PublicURL + "/steam/callback?" + steamAssertion(a, state, time.Now()).Encode()
 	missing := httptest.NewRecorder()
