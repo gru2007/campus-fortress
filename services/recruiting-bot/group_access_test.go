@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -196,6 +197,33 @@ func TestGuardQueryApprovesExistingAccessWithoutMiniApp(t *testing.T) {
 	}
 	if answers != 1 {
 		t.Fatal("eligible guard query was not approved")
+	}
+}
+
+func TestPendingGuardQuerySurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guard.db")
+	db, err := openStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := db.register(ctx, 10, "Tester", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.rememberJoinQuery(ctx, 10, "persisted-query"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = openStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	query, err := db.pendingJoinQuery(ctx, 10)
+	if err != nil || query != "persisted-query" {
+		t.Fatalf("restart lost pending guard query: %q %v", query, err)
 	}
 }
 
