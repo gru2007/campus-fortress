@@ -196,7 +196,7 @@
     try {
       const data = await api("/api/admin");
       if (!me.admin) return;
-      $("stats").replaceChildren(...Object.entries({ participants: "Участников", linked: "Со Steam", available_keys: "Свободных ключей", issued_keys: "Активных ключей", revoked_keys: "Отозвано ключей" }).map(([key, label]) => {
+      $("stats").replaceChildren(...Object.entries({ participants: "Участников", linked: "Со Steam", available_keys: "Свободных ключей", issued_keys: "Активных ключей", revoked_keys: "Отозвано ключей", referrals: "Реферальных регистраций" }).map(([key, label]) => {
         const card = document.createElement("div");
         card.className = "stat";
         const value = document.createElement("strong");
@@ -210,7 +210,9 @@
         name.textContent = person.first_name || "Без имени";
         const id = document.createElement("small");
         id.textContent = person.telegram_id;
-        name.append(id);
+        const referral = document.createElement("small");
+        referral.textContent = `Пригласил: ${person.referrer_id || "—"} · Приглашено: ${person.referrals || 0}`;
+        name.append(id, referral);
         const steam = document.createElement("td");
         steam.textContent = person.steam_id || "Не привязан";
         const key = document.createElement("td");
@@ -245,7 +247,6 @@
     message("session-error");
     try {
       let data = await api("/api/me");
-      // The server validates signed initData; never trust initDataUnsafe for identity.
       if (tg?.initData && (!initialized || !data.user)) {
         data = await api("/api/auth/telegram", { init_data: tg.initData });
         sessionToken = data.session_token;
@@ -274,14 +275,14 @@
         if (telegramLink && url.hostname === "t.me" && tg.openTelegramLink) tg.openTelegramLink(url.href);
         else tg.openLink(url.href, { try_instant_view: false });
         return;
-      } catch { /* Fall back to normal browser navigation when the bridge is unavailable. */ }
+      } catch { }
     }
     window.location.assign(url.href);
   }
 
   function closeGuardMiniApp() {
     if (!tg?.initData || typeof tg.close !== "function") return;
-    try { tg.close(); } catch { /* Telegram will still show the approved join state. */ }
+    try { tg.close(); } catch { }
   }
 
   async function approvePendingJoin() {
