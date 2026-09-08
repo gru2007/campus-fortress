@@ -120,6 +120,10 @@ func TestAPIAuthorizationAndCSRF(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatal("unlinked group allowed")
 	}
+	w = request(a, "POST", "/api/join-request/approve", `{"grant_group_access":true}`, a.cfg.PublicURL, member)
+	if w.Code != 409 {
+		t.Fatal("join approval without pending Telegram query allowed")
+	}
 	if _, err := a.db.Exec(`UPDATE sessions SET expires_at=0 WHERE hash=?`, tokenHash(member.Value)); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +163,7 @@ func TestAuthenticationAllocatesAvailableKeys(t *testing.T) {
 	}
 	c = login(t, a, 2)
 	w = request(a, "GET", "/api/me", "", "", c)
-	if !strings.Contains(w.Body.String(), `"key":"AUTH-KEY"`) || !strings.Contains(w.Body.String(), `"admin":false`) || !strings.Contains(w.Body.String(), `"group_enabled":true`) {
+	if !strings.Contains(w.Body.String(), `"key":"AUTH-KEY"`) || !strings.Contains(w.Body.String(), `"admin":false`) || !strings.Contains(w.Body.String(), `"group_enabled":true`) || !strings.Contains(w.Body.String(), `"join_request_pending":false`) {
 		t.Fatal("linked authentication allocation or me contract failed")
 	}
 }

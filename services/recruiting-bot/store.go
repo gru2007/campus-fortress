@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS keys (
  id INTEGER PRIMARY KEY, value TEXT NOT NULL UNIQUE,
  telegram_id INTEGER UNIQUE REFERENCES users(telegram_id), issued_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS group_access (
+ telegram_id INTEGER PRIMARY KEY REFERENCES users(telegram_id), granted_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS join_queries (
+ telegram_id INTEGER PRIMARY KEY REFERENCES users(telegram_id),
+ query_id TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS join_queries_expiry ON join_queries(expires_at);
 CREATE TABLE IF NOT EXISTS sessions (
  hash TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL REFERENCES users(telegram_id), expires_at INTEGER NOT NULL
 );
@@ -103,6 +111,23 @@ func (s *store) user(ctx context.Context, id int64) (*user, error) {
 	u := &user{}
 	err := s.QueryRowContext(ctx, `SELECT u.telegram_id,u.first_name,COALESCE(u.steam_id,''),COALESCE(k.value,'') FROM users u LEFT JOIN keys k ON k.telegram_id=u.telegram_id WHERE u.telegram_id=?`, id).Scan(&u.TelegramID, &u.FirstName, &u.SteamID, &u.Key)
 	return u, err
+}
+
+func (s *store) grantGroupAccess(ctx context.Context, id int64) error {
+	_, err := s.ExecContext(ctx, `INSERT INTO group_access(telegram_id,granted_at) VALUES(?,?)
+ON CONFLICT(telegram_id) DO UPDATE SET granted_at=excluded.granted_at`, id, time.Now().Unix())
+	return err
+}
+
+func (s *store) groupEligible(ctx context.Context, id int64) (bool, error) {
+	var eligible int
+	err := s.QueryRowContext(ctx, `SELECT EXISTS(
+ SELECT 1 FROM users u WHERE u.telegram_id=? AND (
+  EXISTS(SELECT 1 FROM keys k WHERE k.telegram_id=u.telegram_id)
+  OR EXISTS(SELECT 1 FROM group_access g WHERE g.telegram_id=u.telegram_id)
+ )
+)`, id).Scan(&eligible)
+	return eligible != 0, err
 }
 
 var errNotLinked = errors.New("steam not linked")

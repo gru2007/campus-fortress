@@ -82,6 +82,21 @@ func run() error {
 	if err != nil {
 		return errors.New("cannot initialize Telegram long polling")
 	}
+	if cfg.TestersChatID != 0 {
+		startup, cancel = context.WithTimeout(ctx, 15*time.Second)
+		err = a.validateGroup(startup)
+		cancel()
+		switch {
+		case errors.Is(err, errPublicGroupJoinRequestsDisabled):
+			return errors.New("public testers group must require administrator approval for new members")
+		case errors.Is(err, errJoinRequestQueriesUnsupported):
+			return errors.New("Telegram bot does not support join request queries")
+		case errors.Is(err, errGuardBotNotConfigured):
+			return errors.New("recruiting bot must be assigned to Process Join Requests in the testers group")
+		case err != nil:
+			return errors.New("cannot validate testers group")
+		}
+	}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: a.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10, BaseContext: func(_ net.Listener) context.Context { return ctx }}
 	var wg sync.WaitGroup
 	for _, worker := range []func(context.Context){a.poll, a.deliver, a.cleanup} {
@@ -113,7 +128,7 @@ func (a *app) cleanup(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		now := time.Now().Unix()
-		for _, table := range []string{"sessions", "steam_flows", "steam_nonces"} {
+		for _, table := range []string{"sessions", "steam_flows", "steam_nonces", "join_queries"} {
 			if _, err := a.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE expires_at<?", now); err != nil && ctx.Err() == nil {
 				log.Print("expired auth cleanup failed")
 			}

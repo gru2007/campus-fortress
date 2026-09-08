@@ -76,6 +76,7 @@
     const user = me.user;
     const linked = Boolean(user?.steam_id);
     const key = user?.key || "";
+    const pendingJoin = Boolean(me.join_request_pending);
     const busy = acting || refreshing || !initialized;
     $("account-status").textContent = !initialized ? "Проверяем вход…" : user ? `Вы вошли: ${user.first_name || "Участник"}` : "Знакомство с проектом · без входа";
     step("telegram", Boolean(user), !user, user ? "Подтверждено" : "Вход через бот");
@@ -91,8 +92,15 @@
     $("key-box").hidden = !key;
     $("issued-key").value = key;
     $("key-description").textContent = key ? "Ключ закреплён за вашим аккаунтом. Следите за инструкциями и этапами тестов в объявлениях." : waiting ? "Свободных ключей пока нет. Проверьте позже; точные сроки выдачи не объявлены." : "Ключ выдаётся при наличии. Если свободных ключей нет, проверьте позже.";
-    $("group").disabled = busy || !key || !me.group_enabled;
-    $("group-description").textContent = user && !me.group_enabled ? "Группа тестеров пока не настроена организаторами." : key ? "Можно присоединиться к группе тестеров и обсуждению проекта." : "Доступ откроется после привязки Steam и получения ключа.";
+    $("group").disabled = busy || !user || !me.group_enabled || (!pendingJoin && !key);
+    $("group").textContent = pendingJoin ? "Подтвердить вступление" : "Вступить в группу ↗";
+    $("group-description").textContent = user && !me.group_enabled
+      ? "Группа тестеров пока не настроена организаторами."
+      : pendingJoin
+        ? "Telegram открыл Team Frontress для проверки вашей заявки. Подтвердите доступ здесь или получите ключ — после этого бот одобрит вступление."
+        : key
+          ? "Можно присоединиться к группе тестеров и обсуждению проекта."
+          : "Доступ откроется после получения ключа или через команду /group в боте.";
     $("refresh").disabled = refreshing || acting;
     $("refresh").textContent = refreshing ? "Обновляем…" : "Обновить";
     $("participation").setAttribute("aria-busy", String(refreshing || acting));
@@ -215,6 +223,7 @@
       }
       me = data;
       if (me.user?.key || !me.user) waiting = false;
+      if (me.join_request_pending) message("action-status", "Вы подали заявку в группу. Подтвердите вступление ниже — это окно открыто Telegram для проверки доступа.");
     } catch (error) { message("session-error", error.message, true); }
     finally {
       initialized = true;
@@ -239,6 +248,20 @@
     window.location.assign(url.href);
   }
 
+  function closeGuardMiniApp() {
+    if (!tg?.initData || typeof tg.close !== "function") return;
+    try { tg.close(); } catch { /* Telegram will still show the approved join state. */ }
+  }
+
+  async function approvePendingJoin(grantGroupAccess) {
+    const data = await api("/api/join-request/approve", { grant_group_access: grantGroupAccess });
+    if (data.approved) {
+      me.join_request_pending = false;
+      message("action-status", "Заявка одобрена. Telegram добавит вас в группу.");
+      closeGuardMiniApp();
+    }
+  }
+
   async function action(button, pending, task) {
     if (acting || refreshing) return;
     acting = true;
@@ -260,10 +283,18 @@
     const data = await api("/api/claim", {});
     if (me.user) me.user.key = data.key || "";
     waiting = Boolean(data.waiting);
-    message("action-status", data.key ? "Ключ получен и сохранён в вашем аккаунте." : "Свободных ключей пока нет. Попробуйте проверить позже.");
+    if (data.key && me.join_request_pending) {
+      await approvePendingJoin(false);
+    } else {
+      message("action-status", data.key ? "Ключ получен и сохранён в вашем аккаунте." : "Свободных ключей пока нет. Попробуйте проверить позже.");
+    }
     await loadAdmin();
   }));
-  $("group").addEventListener("click", () => action($("group"), "Создаём приглашение…", async () => {
+  $("group").addEventListener("click", () => action($("group"), me.join_request_pending ? "Подтверждаем заявку…" : "Создаём приглашение…", async () => {
+    if (me.join_request_pending) {
+      await approvePendingJoin(true);
+      return;
+    }
     const data = await api("/api/group", {});
     openExternal(data.url, true);
     message("action-status", "Приглашение в группу открыто.");

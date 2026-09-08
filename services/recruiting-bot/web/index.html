@@ -53,7 +53,7 @@
       <div class="workspace">
         <section class="panel participation" id="participation" aria-labelledby="join-title">
           <div class="section-heading"><div><p class="eyebrow">ВАШ СЛЕДУЮЩИЙ ШАГ</p><h2 id="join-title">Присоединиться к тестам</h2></div><span class="section-icon" aria-hidden="true">↗</span></div>
-          <p class="muted">Свяжите аккаунты и проверьте доступность ключа. Участие не означает, что кампания уже запущена.</p>
+          <p class="muted">Свяжите аккаунты и проверьте доступность ключа. Если это окно открыл Telegram после заявки в группу, здесь же можно подтвердить вступление.</p>
           <div class="account-bar"><span id="account-status" role="status">Проверяем вход…</span><button id="refresh" class="text-button" type="button">Обновить</button></div>
           <p id="session-error" class="notice error" role="alert" hidden></p>
           <ol class="steps">
@@ -62,8 +62,8 @@
             <li id="key-step"><span class="step-number" aria-hidden="true">3</span><div><h3>Получить ключ <span class="step-state" id="key-state">После Steam</span></h3><p id="key-description">Ключ выдаётся при наличии. Если свободных ключей нет, проверьте позже.</p><button id="claim" class="button primary" type="button" disabled>Проверить наличие ключа</button><div id="key-box" hidden><label for="issued-key">Ваш ключ · не передавайте другим</label><div class="key-row"><input id="issued-key" readonly autocomplete="off" spellcheck="false"><button id="copy" class="button secondary" type="button">Копировать</button></div><p id="copy-status" class="small" role="status"></p></div></div></li>
           </ol>
           <p id="action-status" class="notice" role="status" hidden></p>
-          <div class="group-box"><div><h3>На связи с командой</h3><p id="group-description">Группа тестеров станет доступна после получения ключа, если она настроена организаторами.</p></div><button id="group" class="button secondary" type="button" disabled>Вступить в группу ↗</button></div>
-          <p class="privacy">О данных: сохраняем Telegram ID, имя, связанный Steam ID и выданный ключ для учёта участников и выдачи доступа. Бот может отправлять объявления проекта; сообщения можно отключить, заблокировав бот. Пароли не запрашиваем.</p>
+          <div class="group-box"><div><h3>На связи с командой</h3><p id="group-description">Доступ в группу открывается после ключа, через /group или подтверждение заявки в Guard Mini App.</p></div><button id="group" class="button secondary" type="button" disabled>Вступить в группу ↗</button></div>
+          <p class="privacy">О данных: сохраняем Telegram ID, имя, связанный Steam ID, выданный ключ и служебный статус заявки для учёта участников и выдачи доступа. Бот может отправлять объявления проекта; сообщения можно отключить, заблокировав бот. Пароли не запрашиваем.</p>
         </section>
         <aside class="side-column">
           <section class="panel news" aria-labelledby="news-title"><div class="section-heading"><h2 id="news-title">На связи</h2><span class="label">ОБЪЯВЛЕНИЯ</span></div><p class="muted">Этапы тестирования и новости команды.</p><div id="announcements" aria-live="polite"><p class="empty">Объявления доступны после входа через Telegram.</p></div><button id="news-retry" class="text-button" type="button" hidden>Повторить загрузку</button></section>
@@ -81,6 +81,6 @@
     </main>
     <footer><span class="footer-brand">TEAM FRONTRESS</span><p>Независимый проект сообщества, не связан с Valve и не одобрен ею. Steam и другие товарные знаки Valve принадлежат их правообладателю.</p><a href="#main">Наверх ↑</a></footer>
   </div>
-  <dialog id="publish-dialog" aria-labelledby="publish-title"><form method="dialog"><h2 id="publish-title">Опубликовать объявление?</h2><p class="muted">Текст появится в ленте и будет поставлен в очередь рассылки участникам, запустившим бот. Отменить отправку здесь нельзя.</p><p id="publish-preview" class="publish-preview"></p><div class="dialog-actions"><button class="button secondary" value="cancel">Отмена</button><button class="button primary" value="publish">Подтвердить публикацию</button></div></form></dialog>
+  <dialog id="publish-dialog" aria-labelledby="publish-title"><form method="dialog"><h2 id="publish-title">Опубликовать объявление?</h2><p class="muted">Текст уйдёт в ленту и будет поставлен в очередь личной рассылки участникам, которые запускали бот.</p><div id="publish-preview" class="publish-preview"></div><div class="dialog-actions"><button class="button secondary" value="cancel">Отмена</button><button class="button primary" value="publish">Опубликовать</button></div></form></dialog>
 </body>
 </html>
