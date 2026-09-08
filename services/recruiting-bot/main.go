@@ -86,10 +86,14 @@ func run() error {
 		startup, cancel = context.WithTimeout(ctx, 15*time.Second)
 		err = a.validateGroup(startup)
 		cancel()
-		if errors.Is(err, errPublicGroupJoinRequestsDisabled) {
+		switch {
+		case errors.Is(err, errPublicGroupJoinRequestsDisabled):
 			return errors.New("public testers group must require administrator approval for new members")
-		}
-		if err != nil {
+		case errors.Is(err, errJoinRequestQueriesUnsupported):
+			return errors.New("Telegram bot does not support join request queries")
+		case errors.Is(err, errGuardBotNotConfigured):
+			return errors.New("recruiting bot must be assigned to Process Join Requests in the testers group")
+		case err != nil:
 			return errors.New("cannot validate testers group")
 		}
 	}
@@ -124,7 +128,7 @@ func (a *app) cleanup(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		now := time.Now().Unix()
-		for _, table := range []string{"sessions", "steam_flows", "steam_nonces"} {
+		for _, table := range []string{"sessions", "steam_flows", "steam_nonces", "join_queries"} {
 			if _, err := a.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE expires_at<?", now); err != nil && ctx.Err() == nil {
 				log.Print("expired auth cleanup failed")
 			}
