@@ -190,7 +190,6 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 				}
 			}
 			var te *telegramError
-			// Replayed updates may refer to a query that Telegram already resolved.
 			if errors.As(err, &te) && te.Code == 400 {
 				return nil
 			}
@@ -202,7 +201,6 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 		}
 		err = a.telegram(ctx, method, map[string]any{"chat_id": j.Chat.ID, "user_id": j.From.ID}, nil)
 		var te *telegramError
-		// Replayed updates may refer to an already processed request.
 		if errors.As(err, &te) && te.Code == 400 {
 			return nil
 		}
@@ -212,19 +210,37 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 		return nil
 	}
 	m := u.Message
+	words := strings.Fields(m.Text)
+	command := ""
+	if len(words) > 0 {
+		command = strings.Split(words[0], "@")[0]
+	}
+	firstBotStart := false
+	if command == "/start" {
+		started, err := a.db.botStarted(ctx, m.From.ID)
+		if err != nil {
+			return err
+		}
+		firstBotStart = !started
+	}
 	if err := a.db.register(ctx, m.From.ID, m.From.FirstName, true); err != nil {
 		return err
 	}
-	words := strings.Fields(m.Text)
+	if firstBotStart && len(words) > 1 {
+		if referrerID, ok := parseReferralPayload(words[1]); ok {
+			if _, err := a.db.recordReferral(ctx, m.From.ID, referrerID); err != nil {
+				return err
+			}
+		}
+	}
 	if len(words) == 0 {
 		return nil
 	}
-	command := strings.Split(words[0], "@")[0]
 	text := ""
 	var markup any
 	switch command {
 	case "/start", "/help":
-		text = "Team Frontress набирает тестеров! Откройте приложение, привяжите Steam и получите ключ. Если ключи закончились, вы останетесь в списке ожидания: проверьте /key позже.\n\n/start — начать\n/help — помощь\n/key — мой ключ\n/group — ссылка в группу тестеров\n\nВ группу допускаются только участники с активным выданным ключом. Если подать заявку напрямую без ключа, Telegram откроет Mini App, но заявка будет одобрена только после получения ключа. При отзыве ключа доступ прекращается и участник удаляется из группы. Привязка Steam постоянная. Мы не запрашиваем пароль Steam."
+		text = "Team Frontress набирает тестеров! Откройте приложение, привяжите Steam и получите ключ. Если ключи закончились, вы останетесь в списке ожидания: проверьте /key позже.\n\n/start — начать\n/help — помощь\n/key — мой ключ\n/group — ссылка в группу тестеров\n/ref — моя реферальная ссылка\n\nВ группу допускаются только участники с активным выданным ключом. Если подать заявку напрямую без ключа, Telegram откроет Mini App, но заявка будет одобрена только после получения ключа. При отзыве ключа доступ прекращается и участник удаляется из группы. Привязка Steam постоянная. Мы не запрашиваем пароль Steam."
 		markup = map[string]any{"inline_keyboard": [][]any{{map[string]any{"text": "Открыть Team Frontress", "web_app": map[string]string{"url": a.cfg.PublicURL + "/"}}}}}
 	case "/key":
 		_, revoked, err := a.db.keyAccessState(ctx, m.From.ID)
@@ -267,8 +283,18 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 		} else {
 			text = "Подайте заявку на вступление в группу тестеров — бот проверит ваш активный ключ и одобрит её:\n" + link
 		}
+	case "/ref":
+		count, err := a.db.referralCount(ctx, m.From.ID)
+		if err != nil {
+			return err
+		}
+		link, err := a.referralLink(ctx, m.From.ID)
+		if err != nil {
+			return err
+		}
+		text = "Ваша реферальная ссылка Team Frontress:\n" + link + "\n\nПриглашено: " + strconv.Itoa(count) + "\n\nРеферал засчитывается при первом запуске бота по вашей ссылке."
 	default:
-		text = "Используйте /start, /help, /key или /group."
+		text = "Используйте /start, /help, /key, /group или /ref."
 	}
 	body := map[string]any{"chat_id": m.Chat.ID, "text": text}
 	if markup != nil {
@@ -419,7 +445,6 @@ func (a *app) deliverOne(ctx context.Context) error {
 	if _, dbErr = tx.ExecContext(ctx, `UPDATE deliveries SET done=?,next_at=? WHERE announcement_id=? AND telegram_id=?`, done, next, id, userID); dbErr != nil {
 		return dbErr
 	}
-	// Telegram's flood limit can be global, so pause the whole queue on 429.
 	if te != nil && te.Code == 429 {
 		if _, dbErr = tx.ExecContext(ctx, `UPDATE settings SET value=MAX(value,?) WHERE name='delivery_cooldown'`, next); dbErr != nil {
 			return dbErr
