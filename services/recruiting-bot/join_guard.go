@@ -66,6 +66,7 @@ func (a *app) resolvePendingJoinQuery(ctx context.Context, id int64) error {
 }
 
 func (a *app) approveJoinFromMiniApp(w http.ResponseWriter, r *http.Request, id int64) {
+	// Keep accepting the old field for already-open Guard Mini Apps, but it no longer grants access.
 	var body struct {
 		GrantGroupAccess bool `json:"grant_group_access"`
 	}
@@ -85,19 +86,13 @@ func (a *app) approveJoinFromMiniApp(w http.ResponseWriter, r *http.Request, id 
 		fail(w, http.StatusConflict, "Заявка уже обработана или истекла. Подайте её заново.")
 		return
 	}
-	if body.GrantGroupAccess {
-		if err := a.db.grantGroupAccess(r.Context(), id); err != nil {
-			internal(w)
-			return
-		}
-	}
-	eligible, err := a.db.groupEligible(r.Context(), id)
+	eligible, err := a.db.hasActiveKey(r.Context(), id)
 	if err != nil {
 		internal(w)
 		return
 	}
 	if !eligible {
-		fail(w, http.StatusForbidden, "Для вступления получите ключ или подтвердите доступ через Team Frontress.")
+		fail(w, http.StatusForbidden, "Для вступления в группу сначала получите активный ключ Team Frontress.")
 		return
 	}
 	if err := a.resolvePendingJoinQuery(r.Context(), id); err != nil {

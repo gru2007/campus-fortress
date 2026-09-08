@@ -76,31 +76,47 @@
     const user = me.user;
     const linked = Boolean(user?.steam_id);
     const key = user?.key || "";
+    const revoked = Boolean(me.key_revoked);
     const pendingJoin = Boolean(me.join_request_pending);
     const busy = acting || refreshing || !initialized;
+
     $("account-status").textContent = !initialized ? "Проверяем вход…" : user ? `Вы вошли: ${user.first_name || "Участник"}` : "Знакомство с проектом · без входа";
     step("telegram", Boolean(user), !user, user ? "Подтверждено" : "Вход через бот");
     step("steam", linked, Boolean(user) && !linked, linked ? "Привязан" : user ? "Ваш следующий шаг" : "После входа");
-    step("key", Boolean(key), linked && !key, key ? "Выдан" : waiting ? "Пока нет ключей" : linked ? "Проверьте наличие" : "После Steam");
+    if (revoked) step("key", false, false, "Отозван");
+    else step("key", Boolean(key), linked && !key, key ? "Выдан" : waiting ? "Пока нет ключей" : linked ? "Проверьте наличие" : "После Steam");
+
     $("telegram-description").textContent = user ? `Telegram ID: ${user.telegram_id}. Аккаунт подтверждён.` : "Откройте бот проекта в Telegram и запустите Mini App кнопкой в его меню. Если вы уже в Telegram, откройте приложение заново через бот.";
     $("steam-description").textContent = linked ? `Steam ID: ${user.steam_id}` : "Steam откроется во внешнем браузере. После привязки вернитесь сюда: статус обновится. Пароль Steam мы не получаем.";
     $("steam").hidden = linked;
     $("steam").disabled = busy || !user;
-    $("claim").hidden = Boolean(key);
-    $("claim").disabled = busy || !linked;
+    $("claim").hidden = Boolean(key) || revoked;
+    $("claim").disabled = busy || !linked || revoked;
     $("claim").textContent = waiting ? "Проверить ещё раз" : "Проверить наличие ключа";
-    $("key-box").hidden = !key;
-    $("issued-key").value = key;
-    $("key-description").textContent = key ? "Ключ закреплён за вашим аккаунтом. Следите за инструкциями и этапами тестов в объявлениях." : waiting ? "Свободных ключей пока нет. Проверьте позже; точные сроки выдачи не объявлены." : "Ключ выдаётся при наличии. Если свободных ключей нет, проверьте позже.";
-    $("group").disabled = busy || !user || !me.group_enabled || (!pendingJoin && !key);
-    $("group").textContent = pendingJoin ? "Подтвердить вступление" : "Вступить в группу ↗";
+    $("key-box").hidden = !key || revoked;
+    $("issued-key").value = revoked ? "" : key;
+    $("key-description").textContent = revoked
+      ? "Ключ отозван администратором. Он больше не даёт доступ в группу и не будет выдан другому участнику."
+      : key
+        ? "Ключ закреплён за вашим аккаунтом и даёт доступ в группу тестеров. Следите за инструкциями и этапами тестов в объявлениях."
+        : waiting
+          ? "Свободных ключей пока нет. Проверьте позже; точные сроки выдачи не объявлены."
+          : "Ключ выдаётся при наличии. Если свободных ключей нет, проверьте позже.";
+
+    $("group").disabled = busy || !user || !me.group_enabled || !key || revoked;
+    $("group").textContent = pendingJoin && key && !revoked ? "Подтвердить вступление" : "Вступить в группу ↗";
     $("group-description").textContent = user && !me.group_enabled
       ? "Группа тестеров пока не настроена организаторами."
-      : pendingJoin
-        ? "Telegram открыл Team Frontress для проверки вашей заявки. Подтвердите доступ здесь или получите ключ — после этого бот одобрит вступление."
-        : key
-          ? "Можно присоединиться к группе тестеров и обсуждению проекта."
-          : "Доступ откроется после получения ключа или через команду /group в боте.";
+      : revoked
+        ? "Доступ закрыт: ключ отозван. После восстановления ключа можно снова подать заявку."
+        : pendingJoin && !key
+          ? "Заявка получена, но одобрение возможно только после выдачи ключа. Получите ключ — бот сможет завершить вступление."
+          : pendingJoin
+            ? "Ключ подтверждён. Завершите заявку на вступление."
+            : key
+              ? "Можно присоединиться к группе тестеров и обсуждению проекта."
+              : "Доступ в группу открывается только после получения активного ключа Team Frontress.";
+
     $("refresh").disabled = refreshing || acting;
     $("refresh").textContent = refreshing ? "Обновляем…" : "Обновить";
     $("participation").setAttribute("aria-busy", String(refreshing || acting));
@@ -159,6 +175,18 @@
     }
   }
 
+  function accessButton(person) {
+    if (!person.has_key && !person.key_revoked) return document.createTextNode("—");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "text-button participant-action";
+    button.dataset.telegramId = String(person.telegram_id);
+    button.dataset.action = person.key_revoked ? "restore" : "revoke";
+    button.textContent = person.key_revoked ? "Восстановить" : "Отозвать";
+    button.disabled = adminBusy;
+    return button;
+  }
+
   async function loadAdmin() {
     if (!me.admin || adminLoading) return;
     adminLoading = true;
@@ -168,11 +196,11 @@
     try {
       const data = await api("/api/admin");
       if (!me.admin) return;
-      $("stats").replaceChildren(...Object.entries({ participants: "Участников", linked: "Со Steam", available_keys: "Свободных ключей", issued_keys: "Выдано ключей" }).map(([key, label]) => {
+      $("stats").replaceChildren(...Object.entries({ participants: "Участников", linked: "Со Steam", available_keys: "Свободных ключей", issued_keys: "Активных ключей", revoked_keys: "Отозвано ключей" }).map(([key, label]) => {
         const card = document.createElement("div");
         card.className = "stat";
         const value = document.createElement("strong");
-        value.textContent = data.stats[key];
+        value.textContent = data.stats[key] ?? 0;
         card.append(value, document.createTextNode(label));
         return card;
       }));
@@ -186,14 +214,16 @@
         const steam = document.createElement("td");
         steam.textContent = person.steam_id || "Не привязан";
         const key = document.createElement("td");
-        key.textContent = person.has_key ? "Выдан" : "Не выдан";
-        row.append(name, steam, key);
+        key.textContent = person.key_revoked ? "Отозван" : person.has_key ? "Выдан" : "Не выдан";
+        const actions = document.createElement("td");
+        actions.append(accessButton(person));
+        row.append(name, steam, key, actions);
         return row;
       });
       if (!rows.length) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 3;
+        cell.colSpan = 4;
         cell.textContent = "Участников пока нет.";
         row.append(cell);
         rows.push(row);
@@ -222,8 +252,9 @@
         delete data.session_token;
       }
       me = data;
-      if (me.user?.key || !me.user) waiting = false;
-      if (me.join_request_pending) message("action-status", "Вы подали заявку в группу. Подтвердите вступление ниже — это окно открыто Telegram для проверки доступа.");
+      if (me.user?.key || me.key_revoked || !me.user) waiting = false;
+      if (me.join_request_pending && !me.user?.key) message("action-status", "Заявка в группу ожидает ключ. Получите активный ключ Team Frontress, после чего бот сможет её одобрить.");
+      else if (me.join_request_pending) message("action-status", "Ключ подтверждён. Завершите заявку кнопкой ниже.");
     } catch (error) { message("session-error", error.message, true); }
     finally {
       initialized = true;
@@ -253,8 +284,8 @@
     try { tg.close(); } catch { /* Telegram will still show the approved join state. */ }
   }
 
-  async function approvePendingJoin(grantGroupAccess) {
-    const data = await api("/api/join-request/approve", { grant_group_access: grantGroupAccess });
+  async function approvePendingJoin() {
+    const data = await api("/api/join-request/approve", {});
     if (data.approved) {
       me.join_request_pending = false;
       message("action-status", "Заявка одобрена. Telegram добавит вас в группу.");
@@ -284,7 +315,7 @@
     if (me.user) me.user.key = data.key || "";
     waiting = Boolean(data.waiting);
     if (data.key && me.join_request_pending) {
-      await approvePendingJoin(false);
+      await approvePendingJoin();
     } else {
       message("action-status", data.key ? "Ключ получен и сохранён в вашем аккаунте." : "Свободных ключей пока нет. Попробуйте проверить позже.");
     }
@@ -292,7 +323,7 @@
   }));
   $("group").addEventListener("click", () => action($("group"), me.join_request_pending ? "Подтверждаем заявку…" : "Создаём приглашение…", async () => {
     if (me.join_request_pending) {
-      await approvePendingJoin(true);
+      await approvePendingJoin();
       return;
     }
     const data = await api("/api/group", {});
@@ -315,7 +346,7 @@
   async function adminSubmit(form, path, body, success) {
     if (adminBusy || !me.admin) return;
     adminBusy = true;
-    for (const element of document.querySelectorAll(".admin-forms button, .admin-forms textarea, #admin-refresh")) element.disabled = true;
+    for (const element of document.querySelectorAll(".admin-forms button, .admin-forms textarea, #admin-refresh, .participant-action")) element.disabled = true;
     message("admin-status", "Сохраняем…");
     try {
       const data = await api(path, body);
@@ -325,9 +356,41 @@
     } catch (error) { message("admin-status", error.message, true); }
     finally {
       adminBusy = false;
-      for (const element of document.querySelectorAll(".admin-forms button, .admin-forms textarea, #admin-refresh")) element.disabled = false;
+      for (const element of document.querySelectorAll(".admin-forms button, .admin-forms textarea, #admin-refresh, .participant-action")) element.disabled = false;
     }
   }
+
+  async function adminAccessAction(button) {
+    if (adminBusy || !me.admin) return;
+    const id = Number(button.dataset.telegramId);
+    const restore = button.dataset.action === "restore";
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    if (!restore && !window.confirm(`Отозвать ключ у Telegram ID ${id} и удалить участника из группы?`)) return;
+    adminBusy = true;
+    for (const element of document.querySelectorAll(".admin-forms button, .admin-forms textarea, #admin-refresh, .participant-action")) element.disabled = true;
+    message("admin-status", restore ? "Восстанавливаем ключ…" : "Отзываем ключ и удаляем участника из группы…");
+    let refreshSelf = false;
+    try {
+      const data = await api(restore ? "/api/admin/restore-key" : "/api/admin/revoke-key", { telegram_id: id });
+      refreshSelf = me.user?.telegram_id === id;
+      message("admin-status", restore
+        ? "Ключ восстановлен. Пользователь сможет снова подать заявку в группу."
+        : data.removed_from_group ? "Ключ отозван. Участник удалён из группы." : "Ключ отозван; удаление из группы будет повторено автоматически.");
+      await loadAdmin();
+    } catch (error) {
+      message("admin-status", error.message, true);
+      await loadAdmin();
+    } finally {
+      adminBusy = false;
+      for (const element of document.querySelectorAll(".admin-forms button, .admin-forms textarea, #admin-refresh, .participant-action")) element.disabled = false;
+    }
+    if (refreshSelf) await refresh();
+  }
+
+  $("participants").addEventListener("click", (event) => {
+    const button = event.target.closest(".participant-action");
+    if (button) adminAccessAction(button);
+  });
   $("keys-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const keys = $("keys").value.trim();

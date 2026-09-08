@@ -170,7 +170,7 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 		if err := a.db.register(ctx, j.From.ID, j.From.FirstName, false); err != nil {
 			return err
 		}
-		eligible, err := a.db.groupEligible(ctx, j.From.ID)
+		eligible, err := a.db.hasActiveKey(ctx, j.From.ID)
 		if err != nil {
 			return err
 		}
@@ -224,9 +224,17 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 	var markup any
 	switch command {
 	case "/start", "/help":
-		text = "Team Frontress набирает тестеров! Откройте приложение, привяжите Steam и получите ключ. Если ключи закончились, вы останетесь в списке ожидания: проверьте /key позже.\n\n/start — начать\n/help — помощь\n/key — мой ключ\n/group — разрешить мою заявку в группу тестеров\n\nВ группу можно вступить после /group или если вашему Telegram уже выдан ключ. Если вы подадите заявку напрямую в публичной группе без доступа, Telegram откроет Mini App для подтверждения. Привязка Steam постоянная. Мы не запрашиваем пароль Steam."
+		text = "Team Frontress набирает тестеров! Откройте приложение, привяжите Steam и получите ключ. Если ключи закончились, вы останетесь в списке ожидания: проверьте /key позже.\n\n/start — начать\n/help — помощь\n/key — мой ключ\n/group — ссылка в группу тестеров\n\nВ группу допускаются только участники с активным выданным ключом. Если подать заявку напрямую без ключа, Telegram откроет Mini App, но заявка будет одобрена только после получения ключа. При отзыве ключа доступ прекращается и участник удаляется из группы. Привязка Steam постоянная. Мы не запрашиваем пароль Steam."
 		markup = map[string]any{"inline_keyboard": [][]any{{map[string]any{"text": "Открыть Team Frontress", "web_app": map[string]string{"url": a.cfg.PublicURL + "/"}}}}}
 	case "/key":
+		_, revoked, err := a.db.keyAccessState(ctx, m.From.ID)
+		if err != nil {
+			return err
+		}
+		if revoked {
+			text = "Ваш ключ Team Frontress отозван администратором. Доступ в группу тестеров отключён."
+			break
+		}
 		key, err := a.db.claim(ctx, m.From.ID)
 		if errors.Is(err, errNotLinked) {
 			text = "Сначала откройте приложение через /start и привяжите Steam."
@@ -240,18 +248,24 @@ func (a *app) handleUpdate(ctx context.Context, u update) error {
 	case "/group":
 		if a.cfg.TestersChatID == 0 {
 			text = "Группа тестеров пока не настроена."
-		} else if err := a.db.grantGroupAccess(ctx, m.From.ID); err != nil {
+			break
+		}
+		eligible, err := a.db.hasActiveKey(ctx, m.From.ID)
+		if err != nil {
 			return err
-		} else {
-			link, err := a.groupEntry(ctx)
-			if err != nil {
-				if !permanentTelegramError(err) {
-					return err
-				}
-				text = "Не удалось создать приглашение в группу. Обратитесь к организаторам или попробуйте позже."
-			} else {
-				text = "Доступ разрешён. Подайте заявку на вступление в группу тестеров — бот одобрит её:\n" + link
+		}
+		if !eligible {
+			text = "Доступ в группу открывается только после получения активного ключа Team Frontress. Откройте Mini App или используйте /key после привязки Steam."
+			break
+		}
+		link, err := a.groupEntry(ctx)
+		if err != nil {
+			if !permanentTelegramError(err) {
+				return err
 			}
+			text = "Не удалось создать приглашение в группу. Обратитесь к организаторам или попробуйте позже."
+		} else {
+			text = "Подайте заявку на вступление в группу тестеров — бот проверит ваш активный ключ и одобрит её:\n" + link
 		}
 	default:
 		text = "Используйте /start, /help, /key или /group."

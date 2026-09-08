@@ -53,7 +53,7 @@
       <div class="workspace">
         <section class="panel participation" id="participation" aria-labelledby="join-title">
           <div class="section-heading"><div><p class="eyebrow">ВАШ СЛЕДУЮЩИЙ ШАГ</p><h2 id="join-title">Присоединиться к тестам</h2></div><span class="section-icon" aria-hidden="true">↗</span></div>
-          <p class="muted">Свяжите аккаунты и проверьте доступность ключа. Если это окно открыл Telegram после заявки в группу, здесь же можно подтвердить вступление.</p>
+          <p class="muted">Свяжите аккаунты и получите ключ. Доступ в группу тестеров действует только пока за вашим Telegram закреплён активный ключ.</p>
           <div class="account-bar"><span id="account-status" role="status">Проверяем вход…</span><button id="refresh" class="text-button" type="button">Обновить</button></div>
           <p id="session-error" class="notice error" role="alert" hidden></p>
           <ol class="steps">
@@ -62,8 +62,8 @@
             <li id="key-step"><span class="step-number" aria-hidden="true">3</span><div><h3>Получить ключ <span class="step-state" id="key-state">После Steam</span></h3><p id="key-description">Ключ выдаётся при наличии. Если свободных ключей нет, проверьте позже.</p><button id="claim" class="button primary" type="button" disabled>Проверить наличие ключа</button><div id="key-box" hidden><label for="issued-key">Ваш ключ · не передавайте другим</label><div class="key-row"><input id="issued-key" readonly autocomplete="off" spellcheck="false"><button id="copy" class="button secondary" type="button">Копировать</button></div><p id="copy-status" class="small" role="status"></p></div></div></li>
           </ol>
           <p id="action-status" class="notice" role="status" hidden></p>
-          <div class="group-box"><div><h3>На связи с командой</h3><p id="group-description">Доступ в группу открывается после ключа, через /group или подтверждение заявки в Guard Mini App.</p></div><button id="group" class="button secondary" type="button" disabled>Вступить в группу ↗</button></div>
-          <p class="privacy">О данных: сохраняем Telegram ID, имя, связанный Steam ID, выданный ключ и служебный статус заявки для учёта участников и выдачи доступа. Бот может отправлять объявления проекта; сообщения можно отключить, заблокировав бот. Пароли не запрашиваем.</p>
+          <div class="group-box"><div><h3>На связи с командой</h3><p id="group-description">Доступ в группу открывается только после получения активного ключа Team Frontress.</p></div><button id="group" class="button secondary" type="button" disabled>Вступить в группу ↗</button></div>
+          <p class="privacy">О данных: сохраняем Telegram ID, имя, связанный Steam ID, выданный ключ, его статус и служебный статус заявки для учёта участников и выдачи доступа. Бот может отправлять объявления проекта; сообщения можно отключить, заблокировав бот. Пароли не запрашиваем.</p>
         </section>
         <aside class="side-column">
           <section class="panel news" aria-labelledby="news-title"><div class="section-heading"><h2 id="news-title">На связи</h2><span class="label">ОБЪЯВЛЕНИЯ</span></div><p class="muted">Этапы тестирования и новости команды.</p><div id="announcements" aria-live="polite"><p class="empty">Объявления доступны после входа через Telegram.</p></div><button id="news-retry" class="text-button" type="button" hidden>Повторить загрузку</button></section>
@@ -75,7 +75,7 @@
         <p id="admin-status" class="notice" role="status" hidden></p>
         <div id="stats" class="stats"></div>
         <div class="admin-forms"><form id="keys-form"><label for="keys">Импорт ключей</label><p class="small">Один ключ на строку. Повторы пропускаются.</p><textarea id="keys" rows="5" required spellcheck="false" autocomplete="off" placeholder="Вставьте ключи, каждый с новой строки"></textarea><button class="button secondary" type="submit">Импортировать ключи</button></form><form id="announcement-form"><label for="announcement-text">Новое объявление</label><p class="small">До 2000 символов. Публикация в ленте и рассылка через бот.</p><textarea id="announcement-text" rows="5" required maxlength="2000" placeholder="Что важно знать участникам?"></textarea><button class="button primary" type="submit">Опубликовать…</button></form></div>
-        <h3>Участники</h3><p class="small">Только статус выдачи, без содержимого ключей.</p><div class="table-wrap" tabindex="0" role="region" aria-label="Список участников, прокручивается горизонтально"><table><thead><tr><th scope="col">Участник / Telegram ID</th><th scope="col">Steam ID</th><th scope="col">Ключ</th></tr></thead><tbody id="participants"></tbody></table></div>
+        <h3>Участники</h3><p class="small">Отзыв ключа сразу закрывает доступ и удаляет участника из Telegram-группы. Отозванный Steam-ключ не возвращается в общий пул; при восстановлении активируется тот же ключ.</p><div class="table-wrap" tabindex="0" role="region" aria-label="Список участников, прокручивается горизонтально"><table><thead><tr><th scope="col">Участник / Telegram ID</th><th scope="col">Steam ID</th><th scope="col">Ключ</th><th scope="col">Действия</th></tr></thead><tbody id="participants"></tbody></table></div>
       </section>
       <noscript><p class="notice error">Для входа и регистрации нужен JavaScript. Информация о проекте доступна выше.</p></noscript>
     </main>

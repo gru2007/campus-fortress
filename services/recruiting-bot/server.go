@@ -64,12 +64,20 @@ func (a *app) me(w http.ResponseWriter, r *http.Request, id int64, token string)
 		internal(w)
 		return
 	}
+	_, revoked, err := a.db.keyAccessState(r.Context(), id)
+	if err != nil {
+		internal(w)
+		return
+	}
+	if revoked {
+		u.Key = ""
+	}
 	pending, err := a.db.joinRequestPending(r.Context(), id)
 	if err != nil {
 		internal(w)
 		return
 	}
-	body := map[string]any{"user": u, "admin": a.cfg.Admins[id], "group_enabled": a.cfg.TestersChatID != 0, "join_request_pending": pending}
+	body := map[string]any{"user": u, "admin": a.cfg.Admins[id], "group_enabled": a.cfg.TestersChatID != 0, "join_request_pending": pending, "key_revoked": revoked}
 	if token != "" {
 		body["session_token"] = token
 	}
@@ -114,6 +122,15 @@ func (a *app) routes() http.Handler {
 	m.HandleFunc("POST /steam/continue", a.steamContinue)
 	m.HandleFunc("GET /steam/callback", a.steamCallback)
 	m.HandleFunc("POST /api/claim", a.require(false, func(w http.ResponseWriter, r *http.Request, id int64) {
+		_, revoked, err := a.db.keyAccessState(r.Context(), id)
+		if err != nil {
+			internal(w)
+			return
+		}
+		if revoked {
+			fail(w, 403, "Ваш ключ отозван администратором. Новая выдача недоступна до восстановления доступа.")
+			return
+		}
 		key, err := a.db.claim(r.Context(), id)
 		if errors.Is(err, errNotLinked) {
 			fail(w, 409, "Сначала привяжите Steam.")
@@ -131,13 +148,13 @@ func (a *app) routes() http.Handler {
 			fail(w, 409, "Группа тестеров пока не настроена.")
 			return
 		}
-		u, err := a.db.user(r.Context(), id)
+		eligible, err := a.db.hasActiveKey(r.Context(), id)
 		if err != nil {
 			internal(w)
 			return
 		}
-		if u.SteamID == "" || u.Key == "" {
-			fail(w, 403, "Доступ к группе будет открыт после привязки Steam и получения ключа.")
+		if !eligible {
+			fail(w, 403, "Доступ к группе открыт только участникам с активным выданным ключом.")
 			return
 		}
 		link, err := a.groupInvite(r.Context())
@@ -175,6 +192,54 @@ func (a *app) routes() http.Handler {
 			return
 		}
 		respond(w, map[string]int64{"imported": n})
+	}))
+	m.HandleFunc("POST /api/admin/revoke-key", a.require(true, func(w http.ResponseWriter, r *http.Request, _ int64) {
+		var body struct {
+			TelegramID int64 `json:"telegram_id"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		if body.TelegramID <= 0 {
+			fail(w, 400, "Некорректный Telegram ID.")
+			return
+		}
+		revoked, removed, err := a.revokeTesterKey(r.Context(), body.TelegramID)
+		if err != nil {
+			if revoked {
+				fail(w, 502, "Ключ отозван, но Telegram пока не подтвердил удаление из группы. Бот повторит удаление автоматически.")
+			} else {
+				internal(w)
+			}
+			return
+		}
+		if !revoked {
+			fail(w, 409, "У пользователя нет активного ключа для отзыва.")
+			return
+		}
+		respond(w, map[string]bool{"revoked": true, "removed_from_group": removed})
+	}))
+	m.HandleFunc("POST /api/admin/restore-key", a.require(true, func(w http.ResponseWriter, r *http.Request, _ int64) {
+		var body struct {
+			TelegramID int64 `json:"telegram_id"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		if body.TelegramID <= 0 {
+			fail(w, 400, "Некорректный Telegram ID.")
+			return
+		}
+		restored, err := a.db.restoreKey(r.Context(), body.TelegramID)
+		if err != nil {
+			internal(w)
+			return
+		}
+		if !restored {
+			fail(w, 409, "У пользователя нет отозванного ключа.")
+			return
+		}
+		respond(w, map[string]bool{"restored": true})
 	}))
 	m.HandleFunc("POST /api/admin/announcements", a.require(true, func(w http.ResponseWriter, r *http.Request, _ int64) {
 		var body struct {
@@ -234,24 +299,40 @@ func (a *app) routes() http.Handler {
 }
 
 func (a *app) admin(w http.ResponseWriter, r *http.Request, _ int64) {
+	if err := a.db.ensureAccessSchema(r.Context()); err != nil {
+		internal(w)
+		return
+	}
 	type participant struct {
 		TelegramID int64  `json:"telegram_id"`
 		FirstName  string `json:"first_name"`
 		SteamID    string `json:"steam_id"`
 		HasKey     bool   `json:"has_key"`
+		KeyRevoked bool   `json:"key_revoked"`
 	}
 	stats := struct {
 		Participants  int `json:"participants"`
 		Linked        int `json:"linked"`
 		AvailableKeys int `json:"available_keys"`
 		IssuedKeys    int `json:"issued_keys"`
+		RevokedKeys   int `json:"revoked_keys"`
 	}{}
-	err := a.db.QueryRowContext(r.Context(), `SELECT (SELECT COUNT(*) FROM users),(SELECT COUNT(*) FROM users WHERE steam_id IS NOT NULL),(SELECT COUNT(*) FROM keys WHERE telegram_id IS NULL),(SELECT COUNT(*) FROM keys WHERE telegram_id IS NOT NULL)`).Scan(&stats.Participants, &stats.Linked, &stats.AvailableKeys, &stats.IssuedKeys)
+	err := a.db.QueryRowContext(r.Context(), `SELECT
+ (SELECT COUNT(*) FROM users),
+ (SELECT COUNT(*) FROM users WHERE steam_id IS NOT NULL),
+ (SELECT COUNT(*) FROM keys WHERE telegram_id IS NULL),
+ (SELECT COUNT(*) FROM keys k LEFT JOIN key_revocations kr ON kr.key_id=k.id WHERE k.telegram_id IS NOT NULL AND kr.key_id IS NULL),
+ (SELECT COUNT(*) FROM key_revocations)`).Scan(&stats.Participants, &stats.Linked, &stats.AvailableKeys, &stats.IssuedKeys, &stats.RevokedKeys)
 	if err != nil {
 		internal(w)
 		return
 	}
-	rows, err := a.db.QueryContext(r.Context(), `SELECT u.telegram_id,u.first_name,COALESCE(u.steam_id,''),k.id IS NOT NULL FROM users u LEFT JOIN keys k ON k.telegram_id=u.telegram_id ORDER BY u.telegram_id`)
+	rows, err := a.db.QueryContext(r.Context(), `SELECT u.telegram_id,u.first_name,COALESCE(u.steam_id,''),
+ (k.id IS NOT NULL AND kr.key_id IS NULL),kr.key_id IS NOT NULL
+FROM users u
+LEFT JOIN keys k ON k.telegram_id=u.telegram_id
+LEFT JOIN key_revocations kr ON kr.key_id=k.id
+ORDER BY u.telegram_id`)
 	if err != nil {
 		internal(w)
 		return
@@ -259,7 +340,7 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request, _ int64) {
 	people := []participant{}
 	for rows.Next() {
 		var p participant
-		if err := rows.Scan(&p.TelegramID, &p.FirstName, &p.SteamID, &p.HasKey); err != nil {
+		if err := rows.Scan(&p.TelegramID, &p.FirstName, &p.SteamID, &p.HasKey, &p.KeyRevoked); err != nil {
 			rows.Close()
 			internal(w)
 			return
