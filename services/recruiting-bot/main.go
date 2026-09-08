@@ -82,6 +82,17 @@ func run() error {
 	if err != nil {
 		return errors.New("cannot initialize Telegram long polling")
 	}
+	if cfg.TestersChatID != 0 {
+		startup, cancel = context.WithTimeout(ctx, 15*time.Second)
+		err = a.validateGroup(startup)
+		cancel()
+		if errors.Is(err, errPublicGroupJoinRequestsDisabled) {
+			return errors.New("public testers group must require administrator approval for new members")
+		}
+		if err != nil {
+			return errors.New("cannot validate testers group")
+		}
+	}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: a.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10, BaseContext: func(_ net.Listener) context.Context { return ctx }}
 	var wg sync.WaitGroup
 	for _, worker := range []func(context.Context){a.poll, a.deliver, a.cleanup} {
