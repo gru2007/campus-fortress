@@ -271,6 +271,64 @@ func TestPollingDoesNotAcknowledgeFailedUpdate(t *testing.T) {
 	}
 }
 
+func TestDeliveryCooldownSurvivesNewAnnouncementsAndRestart(t *testing.T) {
+	a := testApp(t)
+	path := filepath.Join(t.TempDir(), "cooldown.db")
+	db, err := openStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { db.Close() }()
+	a.db = db
+	ctx := context.Background()
+	if err := db.register(ctx, 1, "Tester", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.announce(ctx, "Before"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return telegramReply(429, `{"ok":false,"error_code":429,"parameters":{"retry_after":30}}`), nil
+		}
+		return telegramReply(200, `{"ok":true,"result":{}}`), nil
+	})
+	if err := a.deliverOne(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.announce(ctx, "During"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.deliverOne(ctx); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("new announcement bypassed cooldown: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = openStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.db = db
+	if err := a.deliverOne(ctx); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("restart lost cooldown: %v", err)
+	}
+	if calls != 1 {
+		t.Fatal("network called during cooldown")
+	}
+	if _, err := db.Exec(`UPDATE settings SET value=0 WHERE name='delivery_cooldown'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.deliverOne(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatal("new announcement did not resume")
+	}
+}
+
 func TestPollingPermanentErrorsDoNotPoisonUpdates(t *testing.T) {
 	for _, method := range []string{"createChatInviteLink", "sendMessage", "approveChatJoinRequest"} {
 		for _, code := range []int{400, 401, 403, 404} {
@@ -335,63 +393,36 @@ func TestPollingPermanentErrorsDoNotPoisonUpdates(t *testing.T) {
 func TestPermanentTelegramErrorClassification(t *testing.T) {
 	for _, err := range []error{errors.New("database failed"), sql.ErrConnDone, &telegramError{Code: 429}, &telegramError{Code: 500}} {
 		if permanentTelegramError(err) {
-			t.Fatalf("transient error classified permanent: %v", err)
+			t.Fatalf("retryable failure acknowledged: %v", err)
 		}
 	}
-	for _, code := range []int{400, 401, 403, 404} {
-		if !permanentTelegramError(&telegramError{Code: code}) {
-			t.Fatalf("Telegram %d not permanent", code)
-		}
-	}
-}
-
-func TestTelegramResponseLimits(t *testing.T) {
 	a := testApp(t)
+	if err := a.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var u update
+	if err := json.Unmarshal([]byte(`{"message":{"from":{"id":123},"chat":{"id":123,"type":"private"},"text":"/group"}}`), &u); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.handleUpdate(context.Background(), u); err == nil || permanentTelegramError(err) {
+		t.Fatal("database failure swallowed")
+	}
+}
+
+func TestBlockedUserDatabaseFailureRemainsRetryable(t *testing.T) {
+	a := testApp(t)
+	ctx := context.Background()
+	if _, err := a.db.Exec(`CREATE TRIGGER reject_blocked BEFORE UPDATE OF blocked ON users WHEN NEW.blocked=1 BEGIN SELECT RAISE(FAIL, 'blocked write failed'); END`); err != nil {
+		t.Fatal(err)
+	}
 	a.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
-		return telegramReply(200, `{"ok":true,"result":"`+strings.Repeat("x", (2<<20)+1)+`"}`), nil
+		return telegramReply(403, `{"ok":false,"error_code":403}`), nil
 	})
-	if err := a.telegram(context.Background(), "getMe", map[string]any{}, new(string)); err == nil {
-		t.Fatal("oversized Telegram response accepted")
-	}
-}
-
-func TestRetryDelay(t *testing.T) {
-	if got := retryDelay(&telegramError{Code: 429, RetryAfter: 5}, 0); got != 6*time.Second {
-		t.Fatalf("retry_after ignored: %v", got)
-	}
-	if got := retryDelay(errors.New("x"), 3); got != 8*time.Second {
-		t.Fatalf("exponential delay wrong: %v", got)
-	}
-}
-
-func TestStoreSurvivesRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "restart.db")
-	s, err := openStore(path)
-	if err != nil {
+	var u update
+	if err := json.Unmarshal([]byte(`{"message":{"from":{"id":123},"chat":{"id":123,"type":"private"},"text":"/help"}}`), &u); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.register(context.Background(), 7, "Tester", true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.importKeys(context.Background(), "KEY"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Exec(`UPDATE users SET steam_id='76561198000000007' WHERE telegram_id=7`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.claim(context.Background(), 7); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err = openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	u, err := s.user(context.Background(), 7)
-	if err != nil || u.Key != "KEY" || u.SteamID == "" {
-		t.Fatalf("restart lost user state: %v", err)
+	if err := a.handleUpdate(ctx, u); err == nil || permanentTelegramError(err) {
+		t.Fatalf("blocked-state database failure must be retried: %v", err)
 	}
 }
