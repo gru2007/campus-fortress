@@ -64,7 +64,12 @@ func (a *app) me(w http.ResponseWriter, r *http.Request, id int64, token string)
 		internal(w)
 		return
 	}
-	body := map[string]any{"user": u, "admin": a.cfg.Admins[id], "group_enabled": a.cfg.TestersChatID != 0}
+	pending, err := a.db.joinRequestPending(r.Context(), id)
+	if err != nil {
+		internal(w)
+		return
+	}
+	body := map[string]any{"user": u, "admin": a.cfg.Admins[id], "group_enabled": a.cfg.TestersChatID != 0, "join_request_pending": pending}
 	if token != "" {
 		body["session_token"] = token
 	}
@@ -120,6 +125,7 @@ func (a *app) routes() http.Handler {
 		}
 		respond(w, map[string]any{"key": key, "waiting": key == ""})
 	}))
+	m.HandleFunc("POST /api/join-request/approve", a.require(false, a.approveJoinFromMiniApp))
 	m.HandleFunc("POST /api/group", a.require(false, func(w http.ResponseWriter, r *http.Request, id int64) {
 		if a.cfg.TestersChatID == 0 {
 			fail(w, 409, "Группа тестеров пока не настроена.")
