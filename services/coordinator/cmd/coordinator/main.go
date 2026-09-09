@@ -26,6 +26,7 @@ import (
 	"github.com/gru2007/team-frontress/services/coordinator/internal/players"
 	"github.com/gru2007/team-frontress/services/coordinator/internal/pool"
 	"github.com/gru2007/team-frontress/services/coordinator/internal/steamauth"
+	"github.com/gru2007/team-frontress/services/coordinator/internal/tf2pickup"
 	"github.com/gru2007/team-frontress/services/coordinator/internal/war"
 )
 
@@ -64,9 +65,18 @@ func run() error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Read(*configPath)
 	if err != nil {
 		return err
+	}
+	if value := os.Getenv("TF2PICKUP_URL"); value != "" {
+		cfg.TF2Pickup.BaseURL = value
+	}
+	if value := os.Getenv("TF2PICKUP_SECRET"); value != "" {
+		cfg.TF2Pickup.Secret = value
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("%s: %w", *configPath, err)
 	}
 
 	var verifier steamauth.Verifier = steamauth.DevVerifier{}
@@ -76,11 +86,7 @@ func run() error {
 		log.Warn("auth.mode is dev: clients are believed about who they are. Do not run this on the public internet.")
 	}
 
-	registry := pool.NewRegistry(60 * time.Second)
-	srvPool, err := pool.New(cfg.Pool, registry)
-	if err != nil {
-		return err
-	}
+	var registry *pool.Registry
 
 	var warEngine *war.Engine
 	if cfg.War.Enabled {
@@ -116,7 +122,22 @@ func run() error {
 		log.Info("player records", "file", cfg.Players.File, "known", records.Known())
 	}
 
-	matchmaker := mm.New(cfg, srvPool, mm.NewRCONSetup(cfg.Name+" | %s"), warEngine, log)
+	var matchmaker *mm.Matchmaker
+	if cfg.TF2Pickup.Enabled() {
+		client, err := tf2pickup.New(cfg.TF2Pickup.BaseURL, cfg.TF2Pickup.Secret)
+		if err != nil {
+			return err
+		}
+		matchmaker = mm.NewBackend(cfg, client, warEngine, log)
+		log.Info("tf2pickup owns match lifecycle", "url", cfg.TF2Pickup.BaseURL)
+	} else {
+		registry = pool.NewRegistry(60 * time.Second)
+		srvPool, err := pool.New(cfg.Pool, registry)
+		if err != nil {
+			return err
+		}
+		matchmaker = mm.New(cfg, srvPool, mm.NewRCONSetup(cfg.Name+" | %s"), warEngine, log)
+	}
 	matchmaker.UsePlayers(records)
 	handler := api.New(cfg, matchmaker, verifier, registry, warEngine, records, log).Handler()
 
@@ -124,7 +145,9 @@ func run() error {
 	defer stop()
 
 	go matchmaker.Run(ctx)
-	go pruneRegistry(ctx, registry)
+	if registry != nil {
+		go pruneRegistry(ctx, registry)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

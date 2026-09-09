@@ -31,7 +31,17 @@ type Config struct {
 	Pool        PoolConfig         `json:"pool"`
 	Timing      TimingConfig       `json:"timing"`
 	War         WarConfig          `json:"war"`
+	TF2Pickup   TF2PickupConfig    `json:"tf2pickup"`
 }
+
+// TF2PickupConfig hands durable game and server lifecycle to tf2pickup-frontress.
+// When configured, pool providers and game-server callbacks are not used.
+type TF2PickupConfig struct {
+	BaseURL string `json:"base_url"`
+	Secret  string `json:"secret"`
+}
+
+func (c TF2PickupConfig) Enabled() bool { return c.BaseURL != "" }
 
 // AuthConfig decides how much the coordinator believes a client.
 type AuthConfig struct {
@@ -389,8 +399,9 @@ func Defaults() Config {
 	}
 }
 
-// Load reads a config file over the defaults and validates the result.
-func Load(path string) (Config, error) {
+// Read reads a config file over the defaults. Callers applying environment
+// overrides must validate the resulting config afterwards.
+func Read(path string) (Config, error) {
 	cfg := Defaults()
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -401,6 +412,15 @@ func Load(path string) (Config, error) {
 	// — which is what an operator listing their own groups means.
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return cfg, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// Load reads a config file over the defaults and validates the result.
+func Load(path string) (Config, error) {
+	cfg, err := Read(path)
+	if err != nil {
+		return cfg, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, fmt.Errorf("%s: %w", path, err)
@@ -473,33 +493,39 @@ func (c Config) Validate() error {
 		return errors.New("no enabled match groups")
 	}
 
-	if len(c.Pool.Providers) == 0 {
-		return errors.New("pool.providers is empty: nothing can host a match")
-	}
-	needSecret := false
-	for i, p := range c.Pool.Providers {
-		switch p.Kind {
-		case "static":
-			if len(p.Servers) == 0 {
-				return fmt.Errorf("pool.providers[%d]: static provider has no servers", i)
-			}
-			for j, s := range p.Servers {
-				if s.Connect == "" {
-					return fmt.Errorf("pool.providers[%d].servers[%d]: connect must be set", i, j)
-				}
-			}
-		case "registered":
-			needSecret = true
-		case "serveme":
-			if p.BaseURL == "" || p.APIKey == "" {
-				return fmt.Errorf("pool.providers[%d]: serveme provider needs base_url and api_key", i)
-			}
-		default:
-			return fmt.Errorf("pool.providers[%d]: unknown kind %q", i, p.Kind)
+	if c.TF2Pickup.Enabled() {
+		if c.TF2Pickup.Secret == "" {
+			return errors.New("tf2pickup.secret is required when tf2pickup.base_url is set")
 		}
-	}
-	if needSecret && c.Secret == "" {
-		return errors.New("secret must be set when servers register themselves")
+	} else {
+		if len(c.Pool.Providers) == 0 {
+			return errors.New("pool.providers is empty: nothing can host a match")
+		}
+		needSecret := false
+		for i, p := range c.Pool.Providers {
+			switch p.Kind {
+			case "static":
+				if len(p.Servers) == 0 {
+					return fmt.Errorf("pool.providers[%d]: static provider has no servers", i)
+				}
+				for j, s := range p.Servers {
+					if s.Connect == "" {
+						return fmt.Errorf("pool.providers[%d].servers[%d]: connect must be set", i, j)
+					}
+				}
+			case "registered":
+				needSecret = true
+			case "serveme":
+				if p.BaseURL == "" || p.APIKey == "" {
+					return fmt.Errorf("pool.providers[%d]: serveme provider needs base_url and api_key", i)
+				}
+			default:
+				return fmt.Errorf("pool.providers[%d]: unknown kind %q", i, p.Kind)
+			}
+		}
+		if needSecret && c.Secret == "" {
+			return errors.New("secret must be set when servers register themselves")
+		}
 	}
 
 	if c.War.Enabled && c.War.TheaterFile == "" {

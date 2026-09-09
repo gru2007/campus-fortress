@@ -26,12 +26,25 @@ func TestDefaultsPlusMapsAndAServerAreValid(t *testing.T) {
 	}
 }
 
+func TestTF2PickupBackendDoesNotRequirePoolProviders(t *testing.T) {
+	c := validConfig()
+	c.Pool.Providers = nil
+	c.TF2Pickup = TF2PickupConfig{BaseURL: "http://tf2pickup:3000", Secret: "secret"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
+
 func TestValidationCatchesTheMistakesThatBiteLater(t *testing.T) {
 	cases := []struct {
 		name  string
 		mutef func(*Config)
 	}{
 		{"no providers", func(c *Config) { c.Pool.Providers = nil }},
+		{"tf2pickup without secret", func(c *Config) {
+			c.TF2Pickup.BaseURL = "http://tf2pickup:3000"
+			c.TF2Pickup.Secret = ""
+		}},
 		{"no enabled groups", func(c *Config) { c.MatchGroups[0].Enabled = false }},
 		{"odd min players", func(c *Config) { c.MatchGroups[0].MinPlayers = 5 }},
 		{"min above ideal", func(c *Config) { c.MatchGroups[0].MinPlayers = 20 }},
@@ -90,6 +103,29 @@ func TestLoadReadsOverTheDefaults(t *testing.T) {
 	}
 	if g.MinPlayers != 4 {
 		t.Fatalf("min players = %d, want the default 4", g.MinPlayers)
+	}
+}
+
+func TestReadAllowsBackendEnvironmentOverridesBeforeValidation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "coordinator.json")
+	cfg := validConfig()
+	cfg.Pool.Providers = nil
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Read(path)
+	if err != nil {
+		t.Fatalf("read before overrides: %v", err)
+	}
+	loaded.TF2Pickup = TF2PickupConfig{BaseURL: "http://tf2pickup:3000", Secret: "secret"}
+	if err := loaded.Validate(); err != nil {
+		t.Fatalf("validate after overrides: %v", err)
 	}
 }
 

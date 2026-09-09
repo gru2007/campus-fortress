@@ -53,6 +53,14 @@ type Matchmaker interface {
 	ReportResult(ctx context.Context, res wire.MatchResult) error
 }
 
+type ratingProvider interface {
+	Ratings(context.Context, []wire.SteamID) (map[wire.SteamID]int, error)
+}
+
+type activeGameRecoverer interface {
+	RecoverActive(context.Context, wire.MatchGroup, wire.SteamID, []wire.AssignedPlayer) (*mm.Ticket, bool, error)
+}
+
 // New builds the API server.
 func New(cfg config.Config, m Matchmaker, v steamauth.Verifier, reg *pool.Registry, w *war.Engine, rec *players.Store, log *slog.Logger) *Server {
 	if log == nil {
@@ -69,9 +77,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/queue/{id}", s.handleQueueStatus)
 	mux.HandleFunc("DELETE /v1/queue/{id}", s.handleQueueCancel)
 	mux.HandleFunc("GET /v1/player/{id}", s.handlePlayer)
-	mux.HandleFunc("POST /v1/gs/register", s.handleServerRegister)
-	mux.HandleFunc("POST /v1/gs/heartbeat", s.handleServerHeartbeat)
-	mux.HandleFunc("POST /v1/gs/result", s.handleServerResult)
+	if !s.cfg.TF2Pickup.Enabled() {
+		mux.HandleFunc("POST /v1/gs/register", s.handleServerRegister)
+		mux.HandleFunc("POST /v1/gs/heartbeat", s.handleServerHeartbeat)
+		mux.HandleFunc("POST /v1/gs/result", s.handleServerResult)
+	}
 	return mux
 }
 
@@ -120,6 +130,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// client whether the number is exact so the UI does not call that zero
 	// "0 servers free".
 	serverCapacityKnown := 1
+	if s.cfg.TF2Pickup.Enabled() {
+		serverCapacityKnown = 0
+	}
 	for _, provider := range s.cfg.Pool.Providers {
 		if provider.Kind == "serveme" {
 			serverCapacityKnown = 0
@@ -236,6 +249,38 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	if !seen[leader] {
 		writeErr(w, http.StatusBadRequest, "the party leader is not in the party")
 		return
+	}
+	if recoverer, ok := s.mm.(activeGameRecoverer); ok {
+		recovered, found, recoverErr := recoverer.RecoverActive(ctx, req.MatchGroup, leader, players)
+		if recoverErr != nil {
+			if errors.Is(recoverErr, mm.ErrActiveGameConflict) {
+				writeErr(w, http.StatusConflict, recoverErr.Error())
+				return
+			}
+			s.log.Error("could not recover active game", "player", leader, "err", recoverErr)
+			writeErr(w, http.StatusBadGateway, "match history is unavailable")
+			return
+		}
+		if found {
+			writeJSON(w, http.StatusOK, wire.QueueResponse{
+				TicketID: recovered.ID, PollAfterMS: s.cfg.Timing.PollAfterMS,
+			})
+			return
+		}
+	}
+	if provider, ok := s.mm.(ratingProvider); ok {
+		ids := make([]wire.SteamID, 0, len(players))
+		for _, player := range players {
+			ids = append(ids, player.SteamID)
+		}
+		ratings, ratingErr := provider.Ratings(ctx, ids)
+		if ratingErr != nil {
+			s.log.Warn("could not load matchmaking ratings", "err", ratingErr)
+		} else {
+			for i := range players {
+				players[i].Rating = ratings[players[i].SteamID]
+			}
+		}
 	}
 
 	ticket, err := s.mm.Enqueue(&mm.Ticket{

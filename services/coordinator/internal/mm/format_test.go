@@ -55,6 +55,29 @@ func TestSplitTeamsBalancesWholeParties(t *testing.T) {
 	}
 }
 
+func TestSplitTeamsUsesRatingAfterPlayerCount(t *testing.T) {
+	queue := tickets(1, 1, 1, 1)
+	ratings := []int{2000, 1900, 1100, 1000}
+	for i := range queue {
+		queue[i].Players[0].Rating = ratings[i]
+	}
+
+	red, blu, ok := splitTeams(queue)
+	if !ok {
+		t.Fatal("four solo players did not produce teams")
+	}
+	average := func(team []*Ticket) int {
+		total := 0
+		for _, ticket := range team {
+			total += ticket.Players[0].Rating
+		}
+		return total / len(team)
+	}
+	if got := average(red) - average(blu); got != 0 {
+		t.Fatalf("average rating difference = %d, want 0", got)
+	}
+}
+
 func TestChooseMapPrefersWhatEveryonePicked(t *testing.T) {
 	m, _, _ := newTestMM(t, testConfig(4, 4, 8, 0), 1)
 	group, _ := m.cfg.Group(wire.MatchGroupCasual12v12)

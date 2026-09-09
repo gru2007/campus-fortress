@@ -94,6 +94,21 @@ func (m *Matchmaker) admit(ctx context.Context, mt *Match, tickets []*Ticket, wh
 	}
 	m.mu.Unlock()
 
+	if m.backend != nil {
+		if !live {
+			m.releaseSeats(mt, tickets, "the match is no longer live")
+			return
+		}
+		if _, err := m.backend.AddPlayers(ctx, matchID, roster); err != nil {
+			m.log.Warn("could not seat players in a running match",
+				"match", matchID, "why", why, "players", len(roster), "err", err)
+			m.releaseSeats(mt, tickets, "the match backend would not take them")
+			return
+		}
+		m.publishAdmission(mt, tickets, matchID, roster, why)
+		return
+	}
+
 	if !live || srv == nil {
 		m.releaseSeats(mt, tickets, "the match is no longer live")
 		return
@@ -106,6 +121,10 @@ func (m *Matchmaker) admit(ctx context.Context, mt *Match, tickets []*Ticket, wh
 		return
 	}
 
+	m.publishAdmission(mt, tickets, matchID, roster, why)
+}
+
+func (m *Matchmaker) publishAdmission(mt *Match, tickets []*Ticket, matchID string, roster []wire.AssignedPlayer, why string) {
 	m.mu.Lock()
 	for _, t := range tickets {
 		// A ticket the player cancelled while we were talking to the server

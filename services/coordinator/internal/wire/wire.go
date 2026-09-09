@@ -136,6 +136,9 @@ type AssignedPlayer struct {
 	SteamID SteamID `json:"steam_id"`
 	Name    string  `json:"name,omitempty"`
 	Team    Team    `json:"team"`
+	// Rating is gateway policy input fetched from tf2pickup. It is never sent
+	// to clients or game servers as part of the roster protocol.
+	Rating int `json:"-"`
 }
 
 // WarBriefing states a battle's place in the campaign. It is the seam the

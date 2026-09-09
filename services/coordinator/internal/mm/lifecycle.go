@@ -17,6 +17,10 @@ import (
 // HTTP reservation and an RCON round-trip. Failure re-queues the parties rather
 // than dropping them: they were promised a match, not a specific server.
 func (m *Matchmaker) boot(ctx context.Context, mt *Match) {
+	if m.backend != nil {
+		m.bootBackend(ctx, mt)
+		return
+	}
 	group, _ := m.cfg.Group(mt.MatchGroup)
 
 	bootCtx, cancel := context.WithTimeout(ctx, m.cfg.Pool.BootDeadline())
@@ -202,6 +206,10 @@ func (m *Matchmaker) failMatch(mt *Match, cause error, requeue bool) {
 
 // superviseMatches ends matches that are empty, over time, or finished.
 func (m *Matchmaker) superviseMatches(ctx context.Context) {
+	if m.backend != nil {
+		m.superviseBackendMatches(ctx)
+		return
+	}
 	type check struct {
 		mt  *Match
 		srv *pool.Server
@@ -359,7 +367,7 @@ func (m *Matchmaker) endMatch(ctx context.Context, mt *Match, res *wire.MatchRes
 
 	m.recordPlayers(mt, res)
 
-	if srv != nil {
+	if srv != nil && m.backend == nil {
 		releaseCtx := context.WithoutCancel(ctx)
 		if err := m.setup.Teardown(releaseCtx, srv); err != nil {
 			m.log.Debug("teardown failed", "server", srv.Connect, "err", err)
