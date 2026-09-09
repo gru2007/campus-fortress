@@ -1,6 +1,7 @@
 package mm
 
 import (
+	"math"
 	"sort"
 	"time"
 
@@ -170,6 +171,7 @@ func splitTeams(ts []*Ticket) (red, blu []*Ticket, ok bool) {
 
 	if n <= 16 {
 		bestDiff := -1
+		bestRatingDiff := math.MaxFloat64
 		var bestMask uint32
 		for mask := uint32(0); mask < uint32(1)<<uint(n); mask++ {
 			sum := 0
@@ -182,11 +184,9 @@ func splitTeams(ts []*Ticket) (red, blu []*Ticket, ok bool) {
 			if diff < 0 {
 				diff = -diff
 			}
-			if bestDiff == -1 || diff < bestDiff {
-				bestDiff, bestMask = diff, mask
-			}
-			if bestDiff == 0 {
-				break
+			ratingDiff := splitRatingDiff(ts, mask)
+			if bestDiff == -1 || diff < bestDiff || (diff == bestDiff && ratingDiff < bestRatingDiff) {
+				bestDiff, bestRatingDiff, bestMask = diff, ratingDiff, mask
 			}
 		}
 		if bestDiff > 1 {
@@ -203,22 +203,85 @@ func splitTeams(ts []*Ticket) (red, blu []*Ticket, ok bool) {
 	}
 
 	sorted := append([]*Ticket(nil), ts...)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Size() > sorted[j].Size() })
-	redSeats, bluSeats := 0, 0
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Size() != sorted[j].Size() {
+			return sorted[i].Size() > sorted[j].Size()
+		}
+		return ticketRating(sorted[i]) > ticketRating(sorted[j])
+	})
+	redSeats, bluSeats, redRating, bluRating := 0, 0, 0, 0
 	for _, t := range sorted {
-		if redSeats <= bluSeats {
+		size, rating := t.Size(), ticketRating(t)
+		redSeatDiff := absInt(redSeats + size - bluSeats)
+		bluSeatDiff := absInt(redSeats - bluSeats - size)
+		putRed := redSeatDiff < bluSeatDiff
+		if redSeatDiff == bluSeatDiff {
+			redDiff := averageRatingDiff(redRating+rating, redSeats+size, bluRating, bluSeats)
+			bluDiff := averageRatingDiff(redRating, redSeats, bluRating+rating, bluSeats+size)
+			putRed = redDiff <= bluDiff
+		}
+		if putRed {
 			red = append(red, t)
-			redSeats += t.Size()
+			redSeats += size
+			redRating += rating
 		} else {
 			blu = append(blu, t)
-			bluSeats += t.Size()
+			bluSeats += size
+			bluRating += rating
 		}
 	}
-	diff := redSeats - bluSeats
-	if diff < 0 {
-		diff = -diff
-	}
+	diff := absInt(redSeats - bluSeats)
 	return red, blu, diff <= 1
+}
+
+func ticketRating(ticket *Ticket) int {
+	total := 0
+	for _, player := range ticket.Players {
+		rating := player.Rating
+		if rating == 0 {
+			rating = 1500
+		}
+		total += rating
+	}
+	return total
+}
+
+func averageRatingDiff(redRating, redPlayers, bluRating, bluPlayers int) float64 {
+	if redPlayers == 0 || bluPlayers == 0 {
+		return math.MaxFloat64
+	}
+	return math.Abs(float64(redRating)/float64(redPlayers) - float64(bluRating)/float64(bluPlayers))
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
+func splitRatingDiff(ts []*Ticket, mask uint32) float64 {
+	redTotal, bluTotal := 0, 0
+	redPlayers, bluPlayers := 0, 0
+	for i, ticket := range ts {
+		for _, player := range ticket.Players {
+			rating := player.Rating
+			if rating == 0 {
+				rating = 1500
+			}
+			if mask&(1<<uint(i)) != 0 {
+				redTotal += rating
+				redPlayers++
+			} else {
+				bluTotal += rating
+				bluPlayers++
+			}
+		}
+	}
+	if redPlayers == 0 || bluPlayers == 0 {
+		return math.MaxFloat64
+	}
+	return math.Abs(float64(redTotal)/float64(redPlayers) - float64(bluTotal)/float64(bluPlayers))
 }
 
 // buildMatchLocked turns a chosen set of tickets into a match record. The

@@ -1,11 +1,19 @@
-# Team Frontress coordinator
+# Team Frontress gateway
 
-A small Go service that runs the queue, forms matches, reserves a game server
-for each one and tells the clients where to connect.
+A small Go service that verifies the Steam client, keeps ephemeral party tickets
+and decides which players should play together. In the normal deployment it
+creates a durable game in `tf2pickup-frontress`, which owns server allocation,
+RCON, Source logs, results, history and ELO.
 
-It is deliberately the *only* server-side component. The party, the invites and
-the party chat are Steam lobbies, handled entirely in the game client — see
+The party, the invites and the party chat are Steam lobbies, handled entirely in the game client — see
 [`docs/MATCHMAKING.md`](../../docs/MATCHMAKING.md).
+
+```text
+Steam lobby -> gateway -> tf2pickup-frontress -> serveme-frontress -> TF2
+```
+
+The old direct `pool`/RCON path remains available for a self-contained LAN. It
+is not used when the `tf2pickup` block is configured.
 
 ## Running it
 
@@ -21,12 +29,26 @@ Point the game at it with `tf_mm_coordinator "http://host:27100"`.
 
 ### Requirements
 
-Go 1.24+. Nothing else — no database, no Redis. State is in memory, except the
-war's event log, which is a file.
+Go 1.24+. Queue state is in memory. Durable match state is in tf2pickup's MongoDB;
+the war's event log remains a file.
 
-That is a deliberate limit: a restart loses the queue and the live matches. For
-a community that fits on one server this is the right trade; if it stops being
-right, the seam to add persistence is `internal/mm`.
+A restart loses stale search tickets, which polling clients recreate. Live
+matches remain in tf2pickup; a new queue request looks up the leader's active
+game and reconstructs its local assignment.
+
+### tf2pickup backend
+
+```json
+"tf2pickup": {
+  "base_url": "http://tf2pickup:3000",
+  "secret": "same value as FRONTRESS_GATEWAY_SECRET"
+}
+```
+
+`TF2PICKUP_URL` and `TF2PICKUP_SECRET` override these values for containers.
+With this block enabled, `pool.providers` may be empty and `/v1/gs/*` is not
+served. See [`deploy/frontress`](../../deploy/frontress/README.md) for the
+three-project compose deployment.
 
 ## Configuration
 

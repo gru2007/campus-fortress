@@ -152,13 +152,14 @@ type ServerSetup interface {
 
 // Matchmaker owns the queue and every formed match.
 type Matchmaker struct {
-	cfg   config.Config
-	pool  *pool.Pool
-	setup ServerSetup
-	war   *war.Engine
-	log   *slog.Logger
-	now   func() time.Time
-	newID func() string
+	cfg     config.Config
+	pool    *pool.Pool
+	setup   ServerSetup
+	backend MatchBackend
+	war     *war.Engine
+	log     *slog.Logger
+	now     func() time.Time
+	newID   func() string
 
 	mu      sync.Mutex
 	players PlayerStore
@@ -170,6 +171,14 @@ type Matchmaker struct {
 	// byLeader lets a client re-queue without stacking tickets: one party, one
 	// ticket per match group.
 	byLeader map[leaderKey]string
+}
+
+// NewBackend builds the production Frontress gateway: it owns queue policy,
+// while backend owns every durable match and game server.
+func NewBackend(cfg config.Config, backend MatchBackend, warEngine *war.Engine, log *slog.Logger) *Matchmaker {
+	m := New(cfg, nil, nil, warEngine, log)
+	m.backend = backend
+	return m
 }
 
 type leaderKey struct {
@@ -485,7 +494,12 @@ func (m *Matchmaker) OpenMatches() map[wire.MatchGroup]int {
 
 // FreeServers is how many servers could host a match right now. Providers that
 // cannot answer without a network call report zero, so it is a floor.
-func (m *Matchmaker) FreeServers() int { return m.pool.Free() }
+func (m *Matchmaker) FreeServers() int {
+	if m.pool == nil {
+		return 0
+	}
+	return m.pool.Free()
+}
 
 // LiveMatches counts matches that are booting or running.
 func (m *Matchmaker) LiveMatches() int {

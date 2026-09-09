@@ -11,8 +11,13 @@
   },
 
   "players": {
-    "file": "players.jsonl",
+    "file": "",
     "abandon_grace_secs": 300
+  },
+
+  "tf2pickup": {
+    "base_url": "http://tf2pickup:3000",
+    "secret": "same-random-value-as-FRONTRESS_GATEWAY_SECRET"
   },
 
   "match_groups": [
@@ -76,28 +81,7 @@
     "boot_deadline_secs": 180,
     "idle_end_secs": 300,
     "max_match_secs": 10800,
-    "providers": [
-      {
-        "kind": "serveme",
-        "region": "eu",
-        "base_url": "https://serveme.example.org",
-        "api_key": "the coordinator user's serveme API key",
-        "reserve_mins": 120,
-        "prefer_docker": true
-      },
-      {
-        "kind": "static",
-        "region": "eu",
-        "servers": [
-          {
-            "name": "local",
-            "connect": "127.0.0.1:27015",
-            "rcon": "change-me",
-            "stv": "127.0.0.1:27020"
-          }
-        ]
-      }
-    ]
+    "providers": []
   },
 
   "timing": {
