@@ -1,8 +1,16 @@
+FROM node:26-alpine AS frontend
+WORKDIR /src
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY frontend ./frontend
+RUN npm run build
+
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=frontend /src/web ./web
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/recruiting-bot .
 
 FROM alpine:3.23

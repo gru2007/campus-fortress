@@ -4,3 +4,4 @@
 *.db-wal
 /data/
 /recruiting-bot
+/node_modules/
