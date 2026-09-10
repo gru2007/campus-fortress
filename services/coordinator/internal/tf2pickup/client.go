@@ -22,6 +22,21 @@ type Client struct {
 	http   *http.Client
 }
 
+type HTTPError struct {
+	Method string
+	Path   string
+	Status int
+	Body   string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("tf2pickup %s %s: HTTP %d: %s", e.Method, e.Path, e.Status, e.Body)
+}
+
+func (e *HTTPError) Temporary() bool {
+	return e.Status == http.StatusRequestTimeout || e.Status == http.StatusTooManyRequests || e.Status >= 500
+}
+
 func New(baseURL, secret string) (*Client, error) {
 	base, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil || base.Scheme == "" || base.Host == "" {
@@ -96,6 +111,29 @@ func (c *Client) ActiveGame(ctx context.Context, steamID wire.SteamID) (mm.Backe
 	return result.Game.backend(), true, nil
 }
 
+func (c *Client) ActiveGames(ctx context.Context) ([]mm.BackendGame, error) {
+	var result struct {
+		Games []response `json:"games"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/frontress/v1/games", nil, &result); err != nil {
+		return nil, err
+	}
+	games := make([]mm.BackendGame, 0, len(result.Games))
+	for _, game := range result.Games {
+		games = append(games, game.backend())
+	}
+	return games, nil
+}
+
+func (c *Client) ForceEnd(ctx context.Context, matchID string) (mm.BackendGame, error) {
+	var result response
+	path := "/api/frontress/v1/games/" + url.PathEscape(matchID) + "/force-end"
+	if err := c.do(ctx, http.MethodPut, path, struct{}{}, &result); err != nil {
+		return mm.BackendGame{}, err
+	}
+	return result.backend(), nil
+}
+
 type requestPlayer struct {
 	SteamID wire.SteamID `json:"steamId"`
 	Name    string       `json:"name,omitempty"`
@@ -119,6 +157,8 @@ type response struct {
 	Map             string          `json:"map"`
 	MatchGroup      wire.MatchGroup `json:"matchGroup"`
 	MaxPlayers      int             `json:"maxPlayers"`
+	CreatedAt       *time.Time      `json:"createdAt"`
+	ReadyAt         *time.Time      `json:"readyAt"`
 	StartedAt       *time.Time      `json:"startedAt"`
 	State           string          `json:"state"`
 	Score           *struct {
@@ -147,6 +187,12 @@ func (r response) backend() mm.BackendGame {
 	}
 	if r.StartedAt != nil {
 		g.StartedAt = *r.StartedAt
+	}
+	if r.CreatedAt != nil {
+		g.CreatedAt = *r.CreatedAt
+	}
+	if r.ReadyAt != nil {
+		g.ReadyAt = *r.ReadyAt
 	}
 	if r.Score != nil {
 		g.RedScore, g.BluScore = r.Score.Red, r.Score.Blu
@@ -199,7 +245,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, into any
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("tf2pickup %s %s: HTTP %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
+		return &HTTPError{Method: method, Path: path, Status: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
 		return fmt.Errorf("tf2pickup %s %s: decode response: %w", method, path, err)

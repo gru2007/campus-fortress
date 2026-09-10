@@ -99,11 +99,22 @@ func (m *Matchmaker) admit(ctx context.Context, mt *Match, tickets []*Ticket, wh
 			m.releaseSeats(mt, tickets, "the match is no longer live")
 			return
 		}
-		if _, err := m.backend.AddPlayers(ctx, matchID, roster); err != nil {
-			m.log.Warn("could not seat players in a running match",
-				"match", matchID, "why", why, "players", len(roster), "err", err)
-			m.releaseSeats(mt, tickets, "the match backend would not take them")
-			return
+		for {
+			if _, err := m.backend.AddPlayers(ctx, matchID, roster); err == nil {
+				break
+			} else {
+				m.log.Warn("could not reconcile seats with a running match",
+					"match", matchID, "why", why, "players", len(roster), "err", err)
+				if !backendErrorTemporary(err) {
+					m.releaseSeats(mt, tickets, "the match backend would not take them")
+					return
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
 		}
 		m.publishAdmission(mt, tickets, matchID, roster, why)
 		return
@@ -122,6 +133,16 @@ func (m *Matchmaker) admit(ctx context.Context, mt *Match, tickets []*Ticket, wh
 	}
 
 	m.publishAdmission(mt, tickets, matchID, roster, why)
+}
+
+func backendErrorTemporary(err error) bool {
+	type temporary interface{ Temporary() bool }
+	if value, ok := err.(temporary); ok {
+		return value.Temporary()
+	}
+	// Transport failures are ambiguous: the durable admission may have been
+	// committed even though its response never reached the gateway.
+	return true
 }
 
 func (m *Matchmaker) publishAdmission(mt *Match, tickets []*Ticket, matchID string, roster []wire.AssignedPlayer, why string) {

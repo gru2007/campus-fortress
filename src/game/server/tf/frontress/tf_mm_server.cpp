@@ -154,7 +154,7 @@ void CTFMMServer::FrameUpdatePreEntityThink()
 }
 
 //-----------------------------------------------------------------------------
-void CTFMMServer::BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *pszMap,
+bool CTFMMServer::BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *pszMap,
                               const char *pszServerConfig, const char *pszFallbackPassword,
                               const CUtlVector< TFMMSeat_t > &vecSeats, int nMaxPlayers )
 {
@@ -170,7 +170,7 @@ void CTFMMServer::BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *psz
 		// wrong game and no way to find out. Run it as an ordinary passworded
 		// match instead: that is a worse match, not a broken one.
 		FallBackToPlainMatch( pszMap );
-		return;
+		return false;
 	}
 
 	if ( m_bPublished )
@@ -261,14 +261,14 @@ void CTFMMServer::BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *psz
 		// ruleset has to win, and the only moment it can is right here: after
 		// their value went in, before the map finishes loading and execs it.
 		if ( m_strServerConfig.IsEmpty() )
-			return;
+			return true;
 
 		static ConVarRef servercfgfile( "servercfgfile" );
 		static ConVarRef lservercfgfile( "lservercfgfile" );
 		servercfgfile.SetValue( m_strServerConfig.Get() );
 		lservercfgfile.SetValue( m_strServerConfig.Get() );
 		MMSrvDbg( "server config for this match is %s\n", m_strServerConfig.Get() );
-		return;
+		return true;
 	}
 
 	{
@@ -289,7 +289,7 @@ void CTFMMServer::BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *psz
 		}
 		// The lobby is what would have changed the map. It did not, so we do.
 		FallBackToPlainMatch( pszMap );
-		return;
+		return false;
 	}
 }
 
@@ -898,8 +898,11 @@ CON_COMMAND( tf_mm_match_begin, "Take a match from the matchmaking coordinator."
 		return;
 	}
 
-	TFMMServer()->BeginMatch( ulMatchID, nMatchGroup, pszMap, pszServerConfig,
-	                          pszFallbackPassword, vecSeats, nMaxPlayers );
+	if ( TFMMServer()->BeginMatch( ulMatchID, nMatchGroup, pszMap, pszServerConfig,
+	                              pszFallbackPassword, vecSeats, nMaxPlayers ) )
+		Msg( "TFMM_MATCH_BEGIN_OK %s\n", args[1] );
+	else
+		Msg( "TFMM_MATCH_BEGIN_FAILED %s\n", args[1] );
 }
 
 //-----------------------------------------------------------------------------

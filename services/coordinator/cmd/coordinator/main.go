@@ -139,10 +139,13 @@ func run() error {
 		matchmaker = mm.New(cfg, srvPool, mm.NewRCONSetup(cfg.Name+" | %s"), warEngine, log)
 	}
 	matchmaker.UsePlayers(records)
-	handler := api.New(cfg, matchmaker, verifier, registry, warEngine, records, log).Handler()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := matchmaker.Hydrate(ctx); err != nil {
+		return err
+	}
+	handler := api.New(cfg, matchmaker, verifier, registry, warEngine, records, log).Handler()
 
 	go matchmaker.Run(ctx)
 	if registry != nil {

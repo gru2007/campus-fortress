@@ -190,8 +190,12 @@ func (m *Matchmaker) failMatch(mt *Match, cause error, requeue bool) {
 			continue
 		}
 		if requeue {
-			t.state = tsSearching
-			t.matchID = ""
+			if m.now().Sub(t.lastPoll) > m.cfg.Timing.SearchTTL() {
+				t.state = tsExpired
+			} else {
+				t.state = tsSearching
+				t.matchID = ""
+			}
 			// lastPoll is the client's liveness, not ours. Refreshing it here
 			// meant a party whose client had quit was kept searching forever:
 			// every failed attempt reset the clock that expire() uses, so the

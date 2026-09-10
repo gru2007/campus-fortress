@@ -18,6 +18,8 @@ type MatchBackend interface {
 	Game(context.Context, string) (BackendGame, error)
 	Ratings(context.Context, []wire.SteamID) (map[wire.SteamID]int, error)
 	ActiveGame(context.Context, wire.SteamID) (BackendGame, bool, error)
+	ActiveGames(context.Context) ([]BackendGame, error)
+	ForceEnd(context.Context, string) (BackendGame, error)
 }
 
 // Ratings loads durable matchmaking ratings without making the API layer know
@@ -44,6 +46,8 @@ type BackendGame struct {
 	Map             string
 	MatchGroup      wire.MatchGroup
 	MaxPlayers      int
+	CreatedAt       time.Time
+	ReadyAt         time.Time
 	StartedAt       time.Time
 	State           string
 	Connect         string

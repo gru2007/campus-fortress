@@ -253,6 +253,11 @@ A match with no reported result still ends: an empty server for `idle_end_secs`,
 or `max_match_secs` elapsed, and the server goes back. That is the fallback,
 not the plan — see the agent below.
 
+With the tf2pickup backend, startup first lists and hydrates every active durable
+game before the HTTP listener opens. `boot_deadline_secs` covers game creation,
+ServeMe allocation, container startup and RCON configuration; timeout handling
+force-ends the durable game before tickets can return to matchmaking.
+
 The match id reaches the server as `sv_tags` `tfmm:<id>`, which is a stock
 convar. A server-side agent can read it back without a custom protocol.
 

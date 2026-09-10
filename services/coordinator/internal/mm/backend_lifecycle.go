@@ -26,48 +26,94 @@ func (m *Matchmaker) bootBackend(ctx context.Context, mt *Match) {
 	mt.waitDetail = "Match found. Waiting for tf2pickup to start a server."
 	m.mu.Unlock()
 
-	deadline := time.NewTimer(m.cfg.Pool.BootDeadline())
-	defer deadline.Stop()
+	bootCtx, cancel := context.WithDeadline(ctx, mt.createdAt.Add(m.cfg.Pool.BootDeadline()))
+	defer cancel()
 	var game BackendGame
-	var err error
 	for {
-		game, err = m.backend.CreateGame(ctx, request)
+		var err error
+		game, err = m.backend.CreateGame(bootCtx, request)
 		if err == nil {
 			break
 		}
 		m.log.Warn("could not persist match in tf2pickup", "match", mt.ID, "err", err)
-		select {
-		case <-ctx.Done():
+		if !waitForBackendRetry(bootCtx) {
+			if ctx.Err() == nil {
+				m.abortBackendMatch(ctx, mt, fmt.Errorf("tf2pickup did not accept the match before the boot deadline"))
+			}
 			return
-		case <-deadline.C:
-			m.failMatch(mt, fmt.Errorf("tf2pickup did not accept the match: %w", err), true)
-			return
-		case <-time.After(2 * time.Second):
 		}
 	}
+	m.awaitBackendGame(ctx, bootCtx, mt, game)
+}
 
+// awaitBackendReady watches a game restored from the durable backend. It does
+// not recreate it because the original request may predate current config.
+func (m *Matchmaker) awaitBackendReady(ctx context.Context, mt *Match) {
+	bootCtx, cancel := context.WithDeadline(ctx, mt.createdAt.Add(m.cfg.Pool.BootDeadline()))
+	defer cancel()
+	game, err := m.backend.Game(bootCtx, mt.ID)
+	if err != nil {
+		m.log.Warn("could not read restored tf2pickup game", "match", mt.ID, "err", err)
+	}
+	m.awaitBackendGame(ctx, bootCtx, mt, game)
+}
+
+func (m *Matchmaker) awaitBackendGame(ctx, bootCtx context.Context, mt *Match, game BackendGame) {
 	for {
 		if game.Ready() {
-			break
+			m.publishBackendGame(mt, game)
+			return
 		}
 		if game.Over() {
 			m.failMatch(mt, fmt.Errorf("tf2pickup ended the match before a server became ready"), false)
 			return
 		}
+		if !waitForBackendRetry(bootCtx) {
+			if ctx.Err() == nil {
+				m.abortBackendMatch(ctx, mt, fmt.Errorf("tf2pickup server boot exceeded %s", m.cfg.Pool.BootDeadline()))
+			}
+			return
+		}
+		var err error
+		game, err = m.backend.Game(bootCtx, mt.ID)
 		if err != nil {
 			m.log.Warn("tf2pickup game is not available yet", "match", mt.ID, "err", err)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(2 * time.Second):
-		}
-		game, err = m.backend.Game(ctx, mt.ID)
 	}
+}
 
+func waitForBackendRetry(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(2 * time.Second):
+		return true
+	}
+}
+
+func (m *Matchmaker) abortBackendMatch(ctx context.Context, mt *Match, cause error) {
+	for ctx.Err() == nil {
+		requestCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		game, err := m.backend.ForceEnd(requestCtx, mt.ID)
+		cancel()
+		if err == nil && game.Over() {
+			m.failMatch(mt, cause, true)
+			return
+		}
+		if err == nil {
+			err = fmt.Errorf("force-end returned non-final state %q", game.State)
+		}
+		m.log.Error("could not force-end timed out tf2pickup game", "match", mt.ID, "err", err)
+		if !waitForBackendRetry(ctx) {
+			return
+		}
+	}
+}
+
+func (m *Matchmaker) publishBackendGame(mt *Match, game BackendGame) {
 	now := m.now()
 	m.mu.Lock()
-	if mt.state == msOver {
+	if mt.state == msOver || mt.state == msLive {
 		m.mu.Unlock()
 		return
 	}
@@ -75,7 +121,10 @@ func (m *Matchmaker) bootBackend(ctx context.Context, mt *Match) {
 	mt.Password = game.Password
 	mt.state = msLive
 	mt.waitDetail = ""
-	mt.startedAt = now
+	mt.startedAt = game.ReadyAt
+	if mt.startedAt.IsZero() {
+		mt.startedAt = now
+	}
 	mt.lastNonEmpty = now
 	for _, id := range mt.tickets {
 		if ticket := m.tickets[id]; ticket != nil {

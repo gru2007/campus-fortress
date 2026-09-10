@@ -68,7 +68,7 @@ public:
 	// The coordinator handed us a match. Builds the lobby and publishes it,
 	// which is what makes the stock server code treat this as a real match --
 	// including changing to the map, which CTFGCServerSystem does for us.
-	void BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *pszMap,
+	bool BeginMatch( uint64 ulMatchID, int nMatchGroup, const char *pszMap,
 	                 const char *pszServerConfig, const char *pszFallbackPassword,
 	                 const CUtlVector< TFMMSeat_t > &vecSeats, int nMaxPlayers );
 

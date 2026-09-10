@@ -25,6 +25,13 @@ func (b recoveryBackend) Ratings(context.Context, []wire.SteamID) (map[wire.Stea
 func (b recoveryBackend) ActiveGame(context.Context, wire.SteamID) (BackendGame, bool, error) {
 	return b.game, true, nil
 }
+func (b recoveryBackend) ActiveGames(context.Context) ([]BackendGame, error) {
+	return []BackendGame{b.game}, nil
+}
+func (b recoveryBackend) ForceEnd(context.Context, string) (BackendGame, error) {
+	b.game.State = "interrupted"
+	return b.game, nil
+}
 
 func TestRecoverActiveRestoresAssignment(t *testing.T) {
 	const player = wire.SteamID("76561198000000001")
@@ -87,5 +94,29 @@ func TestRecoverActiveRejectsPartyMemberOutsideRoster(t *testing.T) {
 	_, found, err := m.RecoverActive(context.Background(), wire.MatchGroupCasual12v12, player, party)
 	if err == nil || !found {
 		t.Fatalf("RecoverActive() = found %v, err %v; want a roster conflict", found, err)
+	}
+}
+
+func TestHydrateRestoresActiveMatchesBeforeAPlayerQueues(t *testing.T) {
+	const player = wire.SteamID("76561198000000001")
+	backend := recoveryBackend{game: BackendGame{
+		ExternalMatchID: "durable-match", Map: "koth_product_final",
+		MatchGroup: wire.MatchGroupCasual12v12, MaxPlayers: 24,
+		State: "started", Connect: "10.0.0.1:27015",
+		Players: []BackendPlayer{{SteamID: player, Team: wire.TeamRed, Connected: true}},
+	}}
+	m := NewBackend(config.Defaults(), backend, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := m.Hydrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.LiveMatches(); got != 1 {
+		t.Fatalf("LiveMatches() = %d, want 1", got)
+	}
+	if got := m.Population(); got != 1 {
+		t.Fatalf("Population() = %d, want 1", got)
+	}
+	if got := m.OpenMatches()[wire.MatchGroupCasual12v12]; got != 1 {
+		t.Fatalf("OpenMatches()[casual] = %d, want 1", got)
 	}
 }

@@ -78,7 +78,7 @@
   ],
 
   "pool": {
-    "boot_deadline_secs": 180,
+    "boot_deadline_secs": 300,
     "idle_end_secs": 300,
     "max_match_secs": 10800,
     "providers": []

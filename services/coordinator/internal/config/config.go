@@ -288,8 +288,8 @@ type PoolConfig struct {
 	// Providers is evaluated in order; the first that yields a server wins.
 	// Known kinds: "static", "registered", "serveme".
 	Providers []ProviderConfig `json:"providers"`
-	// BootDeadlineSecs is how long a reserved server has to answer RCON
-	// before the assignment is abandoned and the parties re-queued.
+	// BootDeadlineSecs covers durable game creation, server allocation,
+	// container startup and RCON configuration.
 	BootDeadlineSecs int `json:"boot_deadline_secs"`
 	// IdleEndSecs ends a match whose server has had no players for this long.
 	IdleEndSecs int `json:"idle_end_secs"`
@@ -386,7 +386,7 @@ func Defaults() Config {
 			},
 		},
 		Pool: PoolConfig{
-			BootDeadlineSecs: 90,
+			BootDeadlineSecs: 300,
 			IdleEndSecs:      300,
 			MaxMatchSecs:     3 * 60 * 60,
 		},
@@ -620,7 +620,7 @@ func (t TimingConfig) AssignmentTTL() time.Duration {
 	return dur(t.AssignmentTTLSecs, time.Second, 10*time.Minute)
 }
 func (p PoolConfig) BootDeadline() time.Duration {
-	return dur(p.BootDeadlineSecs, time.Second, 90*time.Second)
+	return dur(p.BootDeadlineSecs, time.Second, 5*time.Minute)
 }
 func (p PoolConfig) IdleEnd() time.Duration { return dur(p.IdleEndSecs, time.Second, 5*time.Minute) }
 func (p PoolConfig) MaxMatch() time.Duration {
