@@ -35,6 +35,7 @@ type BackendGameRequest struct {
 	ExternalMatchID string
 	Map             string
 	MatchGroup      wire.MatchGroup
+	MatchMode       string
 	MaxPlayers      int
 	ServerConfig    string
 	MatchEmulation  int
