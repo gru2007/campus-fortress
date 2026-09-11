@@ -2,12 +2,54 @@ package tf2pickup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gru2007/team-frontress/services/coordinator/internal/mm"
 )
+
+func TestCreateGameSendsMatchMode(t *testing.T) {
+	const matchID = "0123456789abcdef"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/frontress/v1/games" {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			MatchMode string `json:"matchMode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.MatchMode != "ranked" {
+			t.Errorf("matchMode = %q, want ranked", body.MatchMode)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"externalMatchId":%q,"map":"cp_process_final","matchGroup":2,"maxPlayers":12,"state":"created","players":[]}`, matchID)
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "test-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.CreateGame(context.Background(), mm.BackendGameRequest{
+		ExternalMatchID: matchID,
+		Map:             "cp_process_final",
+		MatchGroup:      2,
+		MatchMode:       "ranked",
+		MaxPlayers:      12,
+		ServerConfig:    "frontress_ranked",
+		MatchEmulation:  2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestActiveGamesAndForceEnd(t *testing.T) {
 	const matchID = "0123456789abcdef"
