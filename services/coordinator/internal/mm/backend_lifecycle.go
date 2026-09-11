@@ -15,6 +15,7 @@ func (m *Matchmaker) bootBackend(ctx context.Context, mt *Match) {
 		ExternalMatchID: mt.ID,
 		Map:             mt.Map,
 		MatchGroup:      mt.MatchGroup,
+		MatchMode:       string(group.EffectiveMode()),
 		MaxPlayers:      matchCapacity(mt, group),
 		ServerConfig:    group.ServerConfig,
 		MatchEmulation:  group.EffectiveMatchEmulation(),
