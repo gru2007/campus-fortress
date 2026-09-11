@@ -50,6 +50,7 @@ func (c *Client) CreateGame(ctx context.Context, game mm.BackendGameRequest) (mm
 		"externalMatchId": game.ExternalMatchID,
 		"map":             game.Map,
 		"matchGroup":      game.MatchGroup,
+		"matchMode":       game.MatchMode,
 		"maxPlayers":      game.MaxPlayers,
 		"serverConfig":    game.ServerConfig,
 		"matchEmulation":  game.MatchEmulation,
