@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ThemeProvider, Group, GroupItem, Button, Input } from '@telegram-tools/ui-kit';
+import { ThemeProvider, Input } from '@telegram-tools/ui-kit';
 import '@telegram-tools/ui-kit/index.css';
 import './style.css';
 import Admin from './Admin.jsx';
@@ -9,7 +9,7 @@ const tg = window.Telegram?.WebApp;
 const native = Boolean(tg?.initData && tg.isVersionAtLeast?.('6.1'));
 const secondary = native && tg.isVersionAtLeast('7.10');
 const fullscreenCapable = Boolean(native && typeof tg?.requestFullscreen === 'function');
-const titles = { home: 'Участие', news: 'Объявления', about: 'О проекте', admin: 'Управление' };
+const titles = { home: 'Доступ', news: 'Объявления', about: 'О проекте', admin: 'Управление' };
 
 function Icon({ name, className = '' }) {
   const paths = {
@@ -49,7 +49,7 @@ function BrandMark({ compact = false }) {
 function CampaignGraphic() {
   return <section className="campaign-card" aria-labelledby="campaign-title">
     <div className="campaign-topline">
-      <span>CAMPAIGN / CONCEPT</span>
+      <span>TEAM FRONTRESS / CONCEPT</span>
       <span className="prototype-chip">EARLY BUILD</span>
     </div>
     <div className="campaign-copy">
@@ -61,40 +61,27 @@ function CampaignGraphic() {
       <div className="campaign-emblem"><Icon name="route" /></div>
     </div>
     <svg className="campaign-map" viewBox="0 0 560 230" role="img" aria-label="Концептуальная схема регионов RED и BLU, соединённых маршрутами">
-      <defs>
-        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path d="M20 0H0V20" className="map-grid" fill="none" />
-        </pattern>
-      </defs>
+      <defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" className="map-grid" fill="none" /></pattern></defs>
       <rect width="560" height="230" rx="18" fill="url(#grid)" />
-      <g className="route-line">
-        <path d="M70 72 170 58 255 110 340 76 478 60" />
-        <path d="M88 166 174 152 255 110 350 158 476 170" />
-        <path d="M170 58 174 152M340 76l10 82" />
-      </g>
-      <g className="red-region">
-        <path d="m33 44 74-18 45 40-22 58-77 2-32-45Z" />
-        <path d="m50 137 76-9 50 42-31 42-84-8-25-34Z" />
-        <circle cx="70" cy="72" r="8" /><circle cx="88" cy="166" r="8" /><circle cx="170" cy="58" r="8" /><circle cx="174" cy="152" r="8" />
-      </g>
-      <g className="blu-region">
-        <path d="m408 30 91 8 38 47-42 45-85-14-28-49Z" />
-        <path d="m389 127 93 5 46 43-37 37-93-5-29-42Z" />
-        <circle cx="478" cy="60" r="8" /><circle cx="476" cy="170" r="8" /><circle cx="340" cy="76" r="8" /><circle cx="350" cy="158" r="8" />
-      </g>
-      <g className="neutral-region">
-        <path d="m224 78 66-9 40 41-32 48-70-9-21-39Z" />
-        <circle cx="255" cy="110" r="11" />
-      </g>
-      <text x="46" y="113" className="map-label red-label">RED</text>
-      <text x="465" y="116" className="map-label blu-label">BLU</text>
-      <text x="235" y="194" className="map-note">СХЕМА ИДЕИ · НЕ ЖИВАЯ КАРТА</text>
+      <g className="route-line"><path d="M70 72 170 58 255 110 340 76 478 60" /><path d="M88 166 174 152 255 110 350 158 476 170" /><path d="M170 58 174 152M340 76l10 82" /></g>
+      <g className="red-region"><path d="m33 44 74-18 45 40-22 58-77 2-32-45Z" /><path d="m50 137 76-9 50 42-31 42-84-8-25-34Z" /><circle cx="70" cy="72" r="8" /><circle cx="88" cy="166" r="8" /><circle cx="170" cy="58" r="8" /><circle cx="174" cy="152" r="8" /></g>
+      <g className="blu-region"><path d="m408 30 91 8 38 47-42 45-85-14-28-49Z" /><path d="m389 127 93 5 46 43-37 37-93-5-29-42Z" /><circle cx="478" cy="60" r="8" /><circle cx="476" cy="170" r="8" /><circle cx="340" cy="76" r="8" /><circle cx="350" cy="158" r="8" /></g>
+      <g className="neutral-region"><path d="m224 78 66-9 40 41-32 48-70-9-21-39Z" /><circle cx="255" cy="110" r="11" /></g>
+      <text x="46" y="113" className="map-label red-label">RED</text><text x="465" y="116" className="map-label blu-label">BLU</text><text x="235" y="194" className="map-note">СХЕМА ИДЕИ · НЕ ЖИВАЯ КАРТА</text>
     </svg>
   </section>;
 }
 
 function ProjectFact({ icon, label, value }) {
   return <div className="project-fact"><span><Icon name={icon} /></span><div><small>{label}</small><strong>{value}</strong></div></div>;
+}
+
+function AccessRow({ icon, iconClass = '', title, description, done = false, blocked = false, state, action, actionLabel, busy }) {
+  return <div className={`access-step ${done ? 'done' : ''} ${blocked ? 'blocked' : ''}`}>
+    <span className={`access-step-icon ${iconClass}`}><Icon name={icon} /></span>
+    <div className="access-step-copy"><strong>{title}</strong><span>{description}</span></div>
+    {actionLabel ? <button className="step-action" disabled={blocked || busy} onClick={action}>{busy ? 'Подождите…' : actionLabel}</button> : <span className={`access-state ${done ? 'success' : ''}`}>{state}</span>}
+  </div>;
 }
 
 function App() {
@@ -144,7 +131,6 @@ function App() {
     lock.current = true; setBusy(true); setStatus(null);
     try {
       let data = await api('/api/me');
-      // Identity comes only from the server's signed initData validation.
       if (tg?.initData && (!token.current || !data.user)) {
         data = await api('/api/auth/telegram', { init_data: tg.initData });
         token.current = data.session_token || '';
@@ -188,7 +174,7 @@ function App() {
       tg.onEvent('themeChanged', update);
       if (fullscreenCapable) {
         tg.onEvent('fullscreenChanged', onFullscreen);
-        try { if (!tg.isFullscreen) tg.requestFullscreen(); } catch { /* expand() remains the fallback. */ }
+        try { if (!tg.isFullscreen) tg.requestFullscreen(); } catch { /* expand remains fallback */ }
       }
     }
     media.addEventListener('change', update);
@@ -229,7 +215,7 @@ function App() {
         if (telegram && url.hostname === 't.me') tg.openTelegramLink(url.href);
         else tg.openLink(url.href, { try_instant_view: false });
         return;
-      } catch { /* Browser navigation remains available without a working bridge. */ }
+      } catch { /* browser fallback below */ }
     }
     location.assign(url.href);
   }
@@ -251,7 +237,7 @@ function App() {
         const data = await api('/api/claim', {});
         setMe(previous => ({ ...previous, user: previous.user ? { ...previous.user, key: data.key || '' } : null }));
         setWaiting(Boolean(data.waiting));
-        setStatus({ text: data.key ? 'Ключ сохранён в вашем аккаунте. Теперь можно вступить в группу.' : 'Свободных ключей пока нет. Проверьте позже.' });
+        setStatus({ text: data.key ? 'Ключ сохранён в аккаунте. Теперь можно вступить в группу тестеров.' : 'Свободных ключей пока нет. Проверьте позже.' });
         if (data.key && me.join_request_pending) await approveJoin();
       } else if (kind === 'group') {
         if (me.join_request_pending) await approveJoin();
@@ -271,102 +257,94 @@ function App() {
     }
   }
 
-  const primary = !user || me.key_revoked ? null : !user.steam_id ? { text: 'Привязать Steam', kind: 'steam' } : !key ? { text: waiting ? 'Проверить наличие ключей' : 'Получить ключ', kind: 'claim' } : me.group_enabled ? { text: me.join_request_pending ? 'Подтвердить вступление' : 'Вступить в группу', kind: 'group' } : null;
-
   useEffect(() => {
     if (!native) return;
     const back = () => navigate('home');
-    const main = () => { if (!busy && primary) run(primary.kind); };
-    const extra = () => { if (!busy) key ? copyKey() : refresh(); };
     tg.BackButton.onClick(back);
     screen === 'home' ? tg.BackButton.hide() : tg.BackButton.show();
-    tg.MainButton.onClick(main);
-    if (screen === 'home' && primary) {
-      tg.MainButton.setParams({ text: primary.text, is_visible: true, is_active: !busy });
-      busy ? tg.MainButton.showProgress() : tg.MainButton.hideProgress();
-    } else { tg.MainButton.hideProgress(); tg.MainButton.hide(); }
-    if (secondary) {
-      tg.SecondaryButton.onClick(extra);
-      tg.SecondaryButton.setParams({ text: key ? 'Копировать ключ' : 'Обновить', is_visible: screen === 'home', is_active: !busy, position: 'top' });
-    }
+    tg.MainButton.hideProgress();
+    tg.MainButton.hide();
+    if (secondary) tg.SecondaryButton.hide();
     return () => {
       tg.BackButton.offClick(back);
       tg.BackButton.hide();
-      tg.MainButton.offClick(main);
       tg.MainButton.hideProgress();
       tg.MainButton.hide();
-      if (secondary) { tg.SecondaryButton.offClick(extra); tg.SecondaryButton.hide(); }
+      if (secondary) tg.SecondaryButton.hide();
     };
-  }, [screen, busy, primary?.text, primary?.kind, key, me.join_request_pending]);
+  }, [screen]);
 
   const progress = key ? 3 : user?.steam_id ? 2 : user ? 1 : 0;
+  const heroTitle = !loaded ? 'Подключаемся…' : me.key_revoked ? 'Доступ приостановлен' : key ? `Готово, ${user?.first_name || 'тестер'}` : user?.steam_id ? 'Остался один шаг' : user ? `Привет, ${user.first_name || 'тестер'}` : 'Откройте через Telegram';
+  const heroText = !loaded ? 'Проверяем аккаунт Telegram и статус доступа.' : me.key_revoked ? 'Выданный ранее доступ отозван. Если это ошибка, обратитесь к администраторам проекта.' : key ? 'Тестовый ключ закреплён за вашим аккаунтом. Можно вступить в закрытую группу и ждать следующую сессию.' : user?.steam_id ? 'Steam уже привязан. Получите свободный ключ — после этого откроется группа тестеров.' : user ? 'Привяжите Steam, получите ключ и войдите в группу тестеров. Всё делается здесь за несколько шагов.' : 'Запустите Mini App через меню бота, чтобы Telegram подтвердил ваш аккаунт.';
+  const chipClass = me.key_revoked ? 'bad' : key ? 'ok' : waiting ? 'warn' : '';
+  const chipText = me.key_revoked ? 'Доступ отозван' : key ? 'Доступ активен' : waiting ? 'Ждём ключ' : 'Регистрация';
 
   return <ThemeProvider theme={theme}>
     <div className={`app-shell ${fullscreen ? 'is-fullscreen' : ''}`}>
       <header className="app-header">
         <button className="icon-button" aria-label={screen === 'home' ? 'Обновить данные' : 'Назад'} disabled={busy} onClick={() => screen === 'home' ? refresh() : navigate('home')}><Icon name={screen === 'home' ? 'refresh' : 'back'} /></button>
-        <div className="app-title"><strong>Team Frontress</strong><span>Field Test Console</span></div>
+        <div className="app-title"><strong>Team Frontress</strong><span>Community playtest</span></div>
         <BrandMark compact />
       </header>
 
       <main className="page-stack" aria-busy={busy}>
         <div className="page-heading">
-          <div><span className="eyebrow">{screen === 'home' ? 'TESTER ACCESS' : screen === 'news' ? 'FIELD COMMS' : screen === 'about' ? 'PROJECT FILE' : 'CONTROL ROOM'}</span><h1 ref={heading} tabIndex={-1}>{titles[screen]}</h1></div>
-          {screen === 'home' && fullscreen && <span className="fullscreen-badge"><span /> FULLSCREEN</span>}
+          <div><span className="eyebrow">{screen === 'home' ? 'PLAYTEST ACCESS' : screen === 'news' ? 'UPDATES' : screen === 'about' ? 'PROJECT' : 'ADMIN'}</span><h1 ref={heading} tabIndex={-1}>{titles[screen]}</h1></div>
+          {screen === 'home' && fullscreen && <span className="fullscreen-badge"><span /> LIVE</span>}
         </div>
         {status && <p className={`notice ${status.error ? 'error' : ''}`} role={status.error ? 'alert' : 'status'}>{status.text}</p>}
 
         {screen === 'home' && <>
-          <section className="profile mission-profile">
-            <div className="profile-avatar">{user?.first_name?.slice(0, 1).toUpperCase() || <BrandMark />}</div>
-            <div className="profile-copy">
-              <span className="profile-label">{key ? 'ACTIVE TESTER' : me.key_revoked ? 'ACCESS REVOKED' : 'RECRUIT'}</span>
-              <h2>{loaded ? user?.first_name || 'Добро пожаловать' : 'Подключаемся'}</h2>
-              <p>{!loaded ? 'Проверяем аккаунт Telegram' : me.key_revoked ? 'Доступ к тестированию отозван' : key ? 'Доступ к полевому тестированию активен' : 'Пройдите регистрацию и получите тестовый ключ'}</p>
+          <section className="access-hero">
+            <div className="hero-top">
+              <div className="hero-project"><BrandMark compact /><div><strong>Team Frontress</strong><small>Закрытое тестирование</small></div></div>
+              <span className={`status-chip ${chipClass}`}><i />{chipText}</span>
+            </div>
+            <div className="hero-copy"><h1>{heroTitle}</h1><p>{heroText}</p></div>
+            <div className="hero-progress" aria-label={`Пройдено ${progress} из 3 шагов`}>
+              <div className={progress >= 1 ? 'done' : ''}><span>01</span><b>Telegram</b></div>
+              <div className={progress >= 2 ? 'done' : ''}><span>02</span><b>Steam</b></div>
+              <div className={progress >= 3 ? 'done' : ''}><span>03</span><b>Ключ</b></div>
             </div>
           </section>
 
-          {!loaded ? <p className="muted" role="status">Загружаем профиль...</p> : <>
-            {!user && <p className="notice">Откройте приложение через меню бота в Telegram, чтобы подтвердить аккаунт, привязать Steam и получить ключ.</p>}
+          <div className="quick-grid">
+            <div className="quick-fact"><small>СИСТЕМА</small><strong>Source / TC2</strong></div>
+            <div className="quick-fact"><small>ФОРМАТ</small><strong>RED vs BLU</strong></div>
+            <div className="quick-fact"><small>СТАТУС</small><strong>Ранний тест</strong></div>
+          </div>
 
-            <div className="mission-strip">
-              <div><small>СИСТЕМА</small><strong>Source / TC2</strong></div>
-              <div><small>ФОРМАТ</small><strong>RED vs BLU</strong></div>
-              <div><small>СТАТУС</small><strong>Ранний тест</strong></div>
+          <section className="section-card">
+            <div className="section-card-head"><div><span className="eyebrow">ДОСТУП К ТЕСТУ</span><h2>Три шага до игры</h2><p>Состояние сохраняется автоматически и привязано к вашему Telegram.</p></div><span className="section-index">{progress}/3</span></div>
+            <div className="access-list">
+              <AccessRow icon="telegram" title="Telegram" description={user ? `Аккаунт подтверждён · ID ${user.telegram_id}` : 'Откройте приложение из меню бота'} done={Boolean(user)} state={user ? 'Готово' : 'Нет входа'} />
+              <AccessRow icon="steam" iconClass="steam" title="Steam" description={user?.steam_id ? `Привязан ${user.steam_id}` : 'Нужен игровой аккаунт Steam'} done={Boolean(user?.steam_id)} blocked={!user || me.key_revoked} state={user?.steam_id ? 'Готово' : undefined} action={!user?.steam_id && user && !me.key_revoked ? () => run('steam') : undefined} actionLabel={!user?.steam_id && user && !me.key_revoked ? 'Привязать' : undefined} busy={busy} />
+              <AccessRow icon="key" iconClass="key" title={me.key_revoked ? 'Ключ отозван' : key ? 'Ключ получен' : waiting ? 'Ожидаем свободный ключ' : 'Тестовый ключ'} description={key ? 'Закреплён за вашим Steam-аккаунтом' : me.key_revoked ? 'Доступ закрыт администратором' : user?.steam_id ? 'Можно запросить ключ из доступного пула' : 'Сначала привяжите Steam'} done={Boolean(key)} blocked={!user?.steam_id || me.key_revoked} state={key ? 'Готово' : me.key_revoked ? 'Закрыт' : undefined} action={!key && user?.steam_id && !me.key_revoked ? () => run('claim') : undefined} actionLabel={!key && user?.steam_id && !me.key_revoked ? (waiting ? 'Проверить' : 'Получить') : undefined} busy={busy} />
             </div>
+            {!key && !me.key_revoked && <div className="access-progress"><span style={{ width: `${progress / 3 * 100}%` }} /></div>}
+            {key && <div className="key-reveal"><label htmlFor="issued-key">Ваш Steam-ключ. Не передавайте его другим.</label><Input ref={keyInput} id="issued-key" value={key} readOnly autoComplete="off" spellCheck={false} /><div className="key-reveal-actions"><button className="native-button secondary" onClick={copyKey}>Копировать ключ</button><button className="native-button" disabled={busy || !me.group_enabled} onClick={() => run('group')}>{me.join_request_pending ? 'Подтвердить вступление' : 'Вступить в группу'}</button></div></div>}
+          </section>
 
-            <Group header="Ваши аккаунты" footer="Пароль Steam мы не получаем. Привязанный аккаунт нельзя заменить.">
-              <GroupItem before={<span className="tile blue"><Icon name="telegram" /></span>} text="Telegram" description={user ? `ID ${user.telegram_id}` : 'Вход через меню бота'} after={<span className={user ? 'success' : 'muted'}>{user ? 'Подключён' : 'Нет входа'}</span>} />
-              <GroupItem before={<span className="tile charcoal"><Icon name="steam" /></span>} text="Steam" description={user?.steam_id || 'Ваш игровой аккаунт'} after={user?.steam_id ? <Icon name="check" className="success" /> : <Button type="secondary" disabled={!user || busy} onClick={() => run('steam')}>Привязать</Button>} />
-            </Group>
+          <section className="section-card">
+            <div className="section-card-head"><div><span className="eyebrow">СООБЩЕСТВО</span><h2>Закрытая группа тестеров</h2><p>{!me.group_enabled ? 'Группа пока не настроена.' : key ? 'Там будут даты сессий, обсуждения, отчёты и обратная связь.' : 'Откроется после получения активного ключа.'}</p></div><span className="section-index"><Icon name="users" /></span></div>
+            <AccessRow icon="users" iconClass="group" title="Группа тестеров" description={me.join_request_pending ? 'Заявка уже отправлена и ждёт подтверждения' : key ? 'Доступ готов к вступлению' : 'Нужен активный ключ'} done={Boolean(key && me.group_enabled)} blocked={!key || !me.group_enabled} state={!key ? 'Недоступно' : !me.group_enabled ? 'Не настроена' : undefined} action={key && me.group_enabled ? () => run('group') : undefined} actionLabel={key && me.group_enabled ? (me.join_request_pending ? 'Подтвердить' : 'Открыть') : undefined} busy={busy} />
+          </section>
 
-            <Group header="Доступ к тестам" footer={me.key_revoked ? 'Отзыв закрывает доступ к группе. Для восстановления обратитесь к администраторам.' : 'Ключ выдаётся при наличии и остаётся закреплён за вашим аккаунтом.'}>
-              <GroupItem before={<span className={`tile ${me.key_revoked ? 'red' : 'orange'}`}><Icon name="key" /></span>} text={me.key_revoked ? 'Доступ отозван' : key ? 'Ключ получен' : waiting ? 'Ожидаем новые ключи' : 'Ключ Team Frontress'} description={key ? 'Активируйте в Steam' : user?.steam_id ? 'Аккаунт готов к выдаче' : 'Сначала привяжите Steam'} after={key ? <Icon name="check" className="success" /> : <span className="muted">{me.key_revoked ? 'Закрыт' : `${progress} / 3`}</span>} />
-              {key && <div className="key-panel"><label htmlFor="issued-key">Ваш ключ. Не передавайте другим.</label><Input ref={keyInput} id="issued-key" value={key} readOnly autoComplete="off" spellCheck={false} /><Button type="secondary" onClick={copyKey}>Копировать ключ</Button></div>}
-              {!key && !me.key_revoked && <div className="progress-track" aria-label={`Пройдено ${progress} из 3 шагов`}><span style={{ width: `${progress / 3 * 100}%` }} /></div>}
-            </Group>
-
-            <Group header="Сообщество" footer={me.join_request_pending ? 'Ваша заявка ожидает подтверждения. Для вступления нужен активный ключ.' : 'Группа доступна участникам с активным ключом.'}>
-              <GroupItem before={<span className="tile green"><Icon name="users" /></span>} text="Группа тестеров" description={!user ? 'После получения ключа' : !me.group_enabled ? 'Пока не настроена' : key ? 'Обсуждения, отчёты и обратная связь' : 'После получения ключа'} after={<Button type="secondary" disabled={busy || !key || !me.group_enabled} onClick={() => run('group')}>{me.join_request_pending ? 'Подтвердить' : 'Открыть'}</Button>} />
-            </Group>
-
-            <button className="project-teaser" onClick={() => navigate('about')}>
-              <span className="teaser-icon"><Icon name="route" /></span>
-              <span><small>ЗАЧЕМ ЭТО НУЖНО</small><strong>Матчи как этапы одной кампании</strong><em>Посмотреть концепт и текущее состояние проекта</em></span>
-              <Icon name="chevron" />
-            </button>
-
-            {!native && primary && <Button loading={busy} disabled={busy} onClick={() => run(primary.kind)}>{primary.text}</Button>}
-            {me.admin && <button className="row-button" onClick={() => navigate('admin')}><Icon name="admin" /><span>Управление набором</span><Icon name="chevron" /></button>}
-          </>}
+          <button className="project-teaser" onClick={() => navigate('about')}>
+            <span className="teaser-icon"><Icon name="route" /></span>
+            <span><small>О ПРОЕКТЕ</small><strong>Матчи как этапы одной кампании</strong><em>Концепт, цели тестирования и что именно мы проверяем</em></span>
+            <Icon name="chevron" />
+          </button>
+          {me.admin && <button className="row-button" onClick={() => navigate('admin')}><Icon name="admin" /><span>Управление набором</span><Icon name="chevron" /></button>}
         </>}
 
         {screen === 'news' && <>
-          <div className="section-intro"><Icon name="news" /><div><h2>Связь с командой</h2><p>Даты сессий, изменения сборок и инструкции для тестеров.</p></div></div>
+          <div className="section-intro"><Icon name="news" /><div><h2>Новости тестирования</h2><p>Даты сессий, изменения сборок и инструкции от команды — без лишнего шума.</p></div></div>
           {!user ? <div className="empty-state"><Icon name="shield" /><h2>Нужен вход через Telegram</h2><p>Объявления доступны зарегистрированным участникам проекта.</p></div> : <>
-            <Button type="secondary" disabled={newsBusy} loading={newsBusy} onClick={loadNews}>Обновить объявления</Button>
+            <div className="news-toolbar"><button className="small-action" disabled={newsBusy} onClick={loadNews}>{newsBusy ? 'Обновляем…' : 'Обновить'}</button></div>
             {newsError && <p className="notice error" role="alert">{newsError}</p>}
-            {newsBusy && !news && <p role="status" className="muted">Загружаем объявления...</p>}
+            {newsBusy && !news && <p role="status" className="muted">Загружаем объявления…</p>}
             {news?.length === 0 && <div className="empty-state"><Icon name="news" /><h2>Пока тихо</h2><p>Здесь появятся даты тестов, изменения сборок и задачи на следующую сессию.</p></div>}
             {news?.map(item => <article className="news-post" key={item.id}><header><BrandMark compact /><div><strong>Team Frontress</strong><time>{Number.isNaN(Date.parse(item.created_at)) ? 'Объявление команды' : new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(item.created_at))}</time></div></header><p>{item.text}</p></article>)}
           </>}
@@ -374,7 +352,6 @@ function App() {
 
         {screen === 'about' && <>
           <CampaignGraphic />
-
           <div className="facts-grid">
             <ProjectFact icon="layers" label="ТЕХНОЛОГИЯ" value="Source SDK + Team Comtress 2" />
             <ProjectFact icon="users" label="ТЕСТИРОВАНИЕ" value="Небольшие группы" />
@@ -382,34 +359,35 @@ function App() {
             <ProjectFact icon="flask" label="СТАТУС" value="Механики ещё формируются" />
           </div>
 
-          <Group header="Что мы исследуем">
-            <GroupItem before={<span className="tile red"><Icon name="flag" /></span>} text="Не отдельный матч, а кампания" description={<p className="row-description">Идея — чтобы знакомое противостояние RED и BLU продолжалось между сессиями: регионы, последовательные этапы и общий прогресс складываются в более длинную историю.</p>} />
-            <GroupItem before={<span className="tile blue"><Icon name="route" /></span>} text="Результат должен иметь контекст" description={<p className="row-description">Мы проверяем сам формат постоянной кампании: насколько игрокам понятны цели этапа, интересно ли следить за общим состоянием и что стоит переносить из одной сессии в следующую.</p>} />
-            <GroupItem before={<span className="tile orange"><Icon name="flask" /></span>} text="Сначала — маленькие тесты" description={<p className="row-description">Это ранняя разработка, а не готовая игра. Механики, сроки и правила могут меняться; первые сборки нужны прежде всего для наблюдений и обратной связи.</p>} />
-          </Group>
-
-          <section className="briefing-card">
-            <div className="briefing-stamp">TESTER BRIEF</div>
-            <h2>Что делает участник</h2>
-            <ol>
-              <li><span>01</span><div><strong>Получает доступ</strong><p>Telegram → Steam → тестовый ключ. Один ключ закрепляется за одним аккаунтом.</p></div></li>
-              <li><span>02</span><div><strong>Заходит в закрытую группу</strong><p>Там появляются инструкции, обсуждения и связь с командой перед тестовыми сессиями.</p></div></li>
-              <li><span>03</span><div><strong>Проверяет идею на практике</strong><p>Нам важны ошибки, непонятные места, темп этапов и то, хочется ли возвращаться к общей кампании.</p></div></li>
-            </ol>
+          <section className="section-card">
+            <div className="section-card-head"><div><span className="eyebrow">ЧТО ПРОВЕРЯЕМ</span><h2>Три идеи, которые важны сейчас</h2></div><span className="section-index"><Icon name="flask" /></span></div>
+            <div className="project-info-list">
+              <div className="project-info-item"><span className="tile red"><Icon name="flag" /></span><div><strong>Не отдельный матч, а кампания</strong><p>Хотим, чтобы противостояние RED и BLU продолжалось между сессиями: регионы, этапы и общий прогресс складываются в одну историю.</p></div></div>
+              <div className="project-info-item"><span className="tile blue"><Icon name="route" /></span><div><strong>Результат должен иметь контекст</strong><p>Проверяем, понятны ли цели этапов, интересно ли следить за общим состоянием и что стоит переносить из одной сессии в следующую.</p></div></div>
+              <div className="project-info-item"><span className="tile orange"><Icon name="flask" /></span><div><strong>Сначала маленькие тесты</strong><p>Это ранняя разработка. Первые сборки нужны прежде всего для наблюдений, поиска слабых мест и обратной связи.</p></div></div>
+            </div>
           </section>
 
-          <Group header="Важно понимать" footer="Team Frontress — независимый проект сообщества, не связан с Valve и не одобрен ею. Steam и другие товарные знаки принадлежат правообладателям.">
-            <GroupItem before={<span className="tile charcoal"><Icon name="flask" /></span>} text="Это эксперимент" description={<p className="row-description">Схема кампании выше — визуализация направления, а не живая карта или обещание конкретных механик. Содержание тестов будет меняться по мере разработки.</p>} />
-            <GroupItem before={<span className="tile green"><Icon name="shield" /></span>} text="Какие данные хранит бот" description={<p className="row-description">Telegram ID и имя, Steam ID, выданный ключ, статус доступа и заявки в группу. Они нужны для учёта участников и выдачи доступа. Пароли мы не запрашиваем.</p>} />
-            <GroupItem before={<span className="tile blue"><Icon name="news" /></span>} text="Уведомления" description={<p className="row-description">Бот может присылать объявления проекта. Отключить их можно, заблокировав бот в Telegram.</p>} />
-          </Group>
+          <section className="briefing-card">
+            <div className="briefing-stamp">TESTER BRIEF</div><h2>Что делает участник</h2>
+            <ol><li><span>01</span><div><strong>Получает доступ</strong><p>Telegram → Steam → тестовый ключ. Один ключ закрепляется за одним аккаунтом.</p></div></li><li><span>02</span><div><strong>Заходит в закрытую группу</strong><p>Там появляются инструкции, обсуждения и связь с командой перед тестовыми сессиями.</p></div></li><li><span>03</span><div><strong>Проверяет идею на практике</strong><p>Нам важны ошибки, непонятные места, темп этапов и то, хочется ли возвращаться к общей кампании.</p></div></li></ol>
+          </section>
+
+          <section className="section-card">
+            <div className="section-card-head"><div><span className="eyebrow">ВАЖНО</span><h2>Перед участием</h2></div><span className="section-index"><Icon name="shield" /></span></div>
+            <div className="project-info-list">
+              <div className="project-info-item"><span className="tile charcoal"><Icon name="flask" /></span><div><strong>Это эксперимент</strong><p>Карта кампании — визуализация направления, а не обещание конкретных механик. Содержание тестов будет меняться по мере разработки.</p></div></div>
+              <div className="project-info-item"><span className="tile green"><Icon name="shield" /></span><div><strong>Какие данные хранит бот</strong><p>Telegram ID и имя, Steam ID, выданный ключ, статус доступа и заявки в группу. Пароли Steam мы не запрашиваем.</p></div></div>
+              <div className="project-info-item"><span className="tile blue"><Icon name="news" /></span><div><strong>Независимый проект</strong><p>Team Frontress — независимый проект сообщества, не связан с Valve и не одобрен ею. Steam и другие товарные знаки принадлежат правообладателям.</p></div></div>
+            </div>
+          </section>
         </>}
 
-        {screen === 'admin' && me.admin && <Admin api={api} confirm={confirm} onSelfChange={refresh} userID={user.telegram_id} />}
+        {screen === 'admin' && me.admin && <Admin api={api} confirm={confirm} onSelfChange={refresh} userID={user?.telegram_id || 0} />}
       </main>
 
       <nav className="tab-bar" aria-label="Разделы приложения">
-        {['home', 'news', 'about'].map(tab => <button key={tab} aria-current={screen === tab ? 'page' : undefined} onClick={() => navigate(tab)}><Icon name={tab} /><span>{tab === 'home' ? 'Участие' : tab === 'news' ? 'Связь' : 'Проект'}</span></button>)}
+        {['home', 'news', 'about'].map(tab => <button key={tab} aria-current={screen === tab ? 'page' : undefined} onClick={() => navigate(tab)}><Icon name={tab} /><span>{tab === 'home' ? 'Доступ' : tab === 'news' ? 'Новости' : 'Проект'}</span></button>)}
       </nav>
     </div>
   </ThemeProvider>;
